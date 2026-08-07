@@ -32,6 +32,32 @@ This repository is a snapshot fork. It does not contain the upstream commit hist
   own copies of those files.
 - `packages/pi-codex-conversion/package.json` is unchanged, so `repository`, `homepage`, and
   `bugs` still point at upstream. Change them before you publish this fork to npm.
+- The 12 Windows binaries (`**/bin/win32-x64/**` and `**/bin/win32-arm64/**`, 39.4 MB) were
+  deleted. See below.
+
+## Deleted Windows binaries
+
+This fork targets Linux and macOS only. Every `win32-x64` and `win32-arm64` binary was
+removed: 6 tools times 2 architectures, 39.4 MB.
+
+Consequences:
+
+- `bun run verify:codex-tool-binaries` fails, because it requires all 36 binaries. That
+  script only runs on `prepublishOnly`, so it does not affect building, testing, or local
+  use. Change the `platforms` list in `scripts/verify-codex-tool-binaries.mjs` if you ever
+  publish this fork.
+- `typecheck` and the 115 tests are unaffected.
+- The `files` globs in `package.json` still name the `bin/**` paths. A glob that matches
+  nothing is harmless.
+- Nothing rebuilds these. Upstream builds them in a GitHub Actions workflow that this fork
+  does not have.
+
+Every upstream sync brings them back, so delete them again after each one:
+
+```bash
+find packages/pi-codex-conversion -path '*/bin/win32-*' -type f -delete
+find packages/pi-codex-conversion -type d -name 'win32-*' -empty -delete
+```
 
 ## Getting changes from upstream
 
@@ -39,18 +65,30 @@ This repository is a snapshot fork. It does not contain the upstream commit hist
 git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   # once
 git fetch upstream
 
-# see what changed in the package since the fork point
-git diff 6cd01ee8dc0a68f686c86dfb14b43fd601e65074..upstream/main -- packages/pi-codex-conversion
+# see what changed in the package since the fork point, ignoring binary churn
+git diff 6cd01ee8dc0a68f686c86dfb14b43fd601e65074..upstream/main \
+  -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 
-Apply the changes with `git apply`, or replace the directory and review the result:
+Upstream rebuilds and commits all 36 binaries on most releases, so excluding them removes
+the largest source of diff noise. `git apply` also fails on a hunk that modifies a Windows
+binary this fork deleted, so the exclusion is required, not only convenient.
+
+Replacing the directory is more reliable than applying a patch, because it cannot conflict:
 
 ```bash
 git rm -r --cached packages/pi-codex-conversion
 rm -rf packages/pi-codex-conversion
 git archive upstream/main packages/pi-codex-conversion | tar -x
-git add packages/pi-codex-conversion
+find packages/pi-codex-conversion -path '*/bin/win32-*' -type f -delete
+find packages/pi-codex-conversion -type d -name 'win32-*' -empty -delete
+git add -A packages/pi-codex-conversion
 git status
 ```
 
-After a sync, write the new upstream commit into the table above.
+After a sync:
+
+1. Write the new upstream commit into the table above.
+2. Check whether `src/voice/rust/`, `src/tools/**/rust/`, or any `Cargo.lock` moved. If so,
+   rebuild whatever consumes them.
+3. Run `bun install && bun run check`.
