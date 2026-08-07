@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+*.tgz
+.pi/*
+!.pi/skills/
+!.pi/skills/**
+!.pi/prompts/
+!.pi/prompts/**
+!.pi/codex-conversion-custom-tools/
+!.pi/codex-conversion-custom-tools/**
