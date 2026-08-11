@@ -5,6 +5,7 @@ import { resolveCodexVoiceAuth } from "../auth.ts";
 import type { CodexVoiceController } from "../controller.ts";
 import type { CodexLanVoiceServer } from "./server.ts";
 import { boundedAssistantText } from "./activity.ts";
+import { notifyLanVoiceStarted } from "./ntfy.ts";
 
 export interface CodexLanVoiceServerStatus {
 	running: boolean;
@@ -66,6 +67,12 @@ export class CodexLanVoiceServerController {
 				`LAN voice is running:\n${this.server.urls.join("\n")}\nAccept the local certificate on first visit.`,
 				"info",
 			);
+			void notifyLanVoiceStarted(this.server.urls).catch((error: unknown) => {
+				ctx.ui.notify(
+					`LAN voice started, but ntfy notification failed: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			});
 			return this.status();
 		});
 	}

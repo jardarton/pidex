@@ -9,7 +9,8 @@ Read its [README](packages/pi-codex-conversion/README.md) for what the extension
 and how to use it.
 
 See [UPSTREAM.md](UPSTREAM.md) for the fork point and the procedure to get changes from
-upstream.
+upstream. Fork-only behavior and the steps for recreating it are tracked in
+[PATCH.md](PATCH.md).
 
 ## Layout
 
