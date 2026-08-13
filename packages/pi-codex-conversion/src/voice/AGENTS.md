@@ -1,5 +1,4 @@
 - `controller.ts` owns the public facade, teardown, mute, and Pi event bridge; `controller-start.ts` owns startup/auth/state transitions; `controller-sessions.ts` loads modes and guards cancellation across imports; `controller-support.ts` owns shared state/presentation helpers.
-- `delegation-preflight.ts` owns prompt/tool prewarm identity plus commit/rollback before Pi receives an idle voice delegation.
 - Under `conversation/`, `session.ts` owns V3 sequencing, `call-setup.ts` HTTP setup, `handoff.ts` delegation output, and `wire.ts` validation. `auth.ts`, `dictation/`, and `session-messages.ts` retain their boundaries.
 - `helper.ts` owns the process; `helper-protocol.ts` owns JSONL framing and validation. LAN browser transport, ownership, and decoding stay in `browser-connections.ts`, `browser-session.ts`, and `browser-wire.ts`.
 - `controls.ts` owns start/stop/setup policy; settings commands and shortcuts route through it into the controller.
@@ -11,9 +10,10 @@
 - Realtime delegations are model-visible user-role custom messages hidden from duplicate rendering; active Pi turns use `deliverAs: "steer"`. Mirror only interactive/RPC Pi steering to the owning delegation, never extension input.
 - Realtime start/end are fixed model-visible purple lifecycle messages: steer an active Pi turn or append while idle, never trigger a turn. Start scopes spoken progress/formatting guidance to delegations; end restores normal interaction.
 - Delegation `<input>` is authoritative. `<transcript_delta>` contains deduplicated finalized frontend history before that input; keep partial recognition and the current utterance out.
-- On finalized user `turn.done`, immediately show one display-only `You said` entry before routing any hidden canonical delegation. Never render partial recognition.
-- Buffer Pi worker text to its assistant-message boundary. Route tool-use messages to V3 commentary and terminal messages to speakable without changing visible Pi text. Never forward raw thinking deltas.
+- Show a delegation's authoritative input as one display-only `You said` entry before routing it; consume its later `turn.done` without duplicate display. Nondelegated turns use their finalized transcript. Never render partial recognition.
+- Stream Pi text after two opening sentences, then by paragraph; send the unsent tail at message end. Keep lists and structured blocks together. Never forward raw thinking deltas; a completed compatible-model summary may replace only an otherwise silent tool-use update.
 - Each mode owns its helper process and idempotent cleanup; the controller owns replacement/reload/shutdown ordering.
+- Opt-in auto-resume replaces only established host-to-OpenAI V3 calls after terminal transport drops. Preserve LAN browser ownership, rerun normal context startup, omit lifecycle end/start, and leave failed replacement startup terminal.
 - LAN voice is host-owned: one helper WebRTC V3 call owns authenticated setup and delegation; browser disconnect/takeover preserves it, explicit Stop closes it so the next Start snapshots fresh Pi context. Never replace supported V3 WebRTC with standalone ChatGPT OAuth WebSocket.
 - Realtime mic mute keeps V3 warm. Gate browser tracks, discard captured samples, send silence RTP, and reset mute when input ownership ends.
 - Native `v3.rs` owns WebRTC signaling/session state; `v3_media.rs` owns audio tracks, playout, encoding, and silence RTP.

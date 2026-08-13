@@ -13,6 +13,7 @@ import type { CodeModeProxyProviderRegistration } from "../providers/code-mode-p
 import { maybeWarnLocalCheckoutVersion } from "../adapter/local-version-warning.ts";
 import { clearApplyPatchRenderState } from "../tools/apply-patch/tool.ts";
 import type { CodeModeRegistration } from "../tools/code-mode/tools.ts";
+import { parseRealtimeVoicePrompt, REALTIME_VOICE_PROMPT_CHANNEL } from "../realtime-voice.ts";
 import { initializeBashParser } from "../shell/bash.ts";
 import { prepareVoiceDelegation } from "../voice/delegation-preflight.ts";
 import type { CodexExtensionRuntime } from "./runtime.ts";
@@ -60,10 +61,15 @@ export function registerCodexEvents(
 	proxyProvider: CodeModeProxyProviderRegistration,
 ): void {
 	const { state, tracker, sessions } = runtime;
+	pi.events.on(REALTIME_VOICE_PROMPT_CHANNEL, (value) => {
+		const report = parseRealtimeVoicePrompt(value);
+		if (report) runtime.voice.setPrompt(report);
+	});
 	runtime.voice.setDelegationPreflight((ctx, signal) => prepareVoiceDelegation(runtime, codeMode, ctx, signal));
 	sessions.onSessionExit((sessionId) => tracker.recordSessionFinished(sessionId));
 
 	pi.on("session_start", async (event, ctx) => {
+		ui.invalidateUsageStatus();
 		await runtime.lanVoice.stop(ctx);
 		runtime.voice.resetContextAnnouncements();
 		runtime.voice.resetSessionContext();
@@ -72,6 +78,7 @@ export function registerCodexEvents(
 		runtime.backgroundWidget.ctx = ctx;
 		state.cwd = ctx.cwd;
 		state.config = readCodexConversionConfig();
+		state.weeklyUsageLeft = undefined;
 		state.activeProviderSystemPrompt = undefined;
 		state.voiceSystemPromptOverride = undefined;
 		proxyProvider.applyConfig(state.config, ctx.modelRegistry);
@@ -91,6 +98,7 @@ export function registerCodexEvents(
 		ui.renderBackgroundWidget();
 		syncAdapter(pi, ctx, state);
 		await runtime.configureDiagnostics(ctx);
+		void ui.refreshUsageStatus(ctx);
 		prepareCodeModeHost(codeMode, ctx);
 		if (!state.config.prompt.heavySystemPromptOverwrite)
 			void runtime.startPrewarm(ctx, codeMode.refreshPromptTools(ctx.getSystemPrompt(), ctx));
@@ -98,10 +106,12 @@ export function registerCodexEvents(
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
+		ui.invalidateUsageStatus();
 		runtime.resetTransport(ctx.sessionManager.getSessionId());
 		state.cwd = ctx.cwd;
 		state.activeProviderSystemPrompt = undefined;
 		state.voiceSystemPromptOverride = undefined;
+		state.weeklyUsageLeft = undefined;
 		state.promptSkills = extractPiPromptSkills(ctx.getSystemPrompt());
 		proxyProvider.applyConfig(state.config, ctx.modelRegistry);
 		if (state.config.voiceFeaturesOnly) {
@@ -114,6 +124,7 @@ export function registerCodexEvents(
 		tools.ensureOptionalTools();
 		syncAdapter(pi, ctx, state);
 		await runtime.configureDiagnostics(ctx);
+		void ui.refreshUsageStatus(ctx);
 		prepareCodeModeHost(codeMode, ctx);
 		if (!state.config.prompt.heavySystemPromptOverwrite)
 			void runtime.startPrewarm(ctx, codeMode.refreshPromptTools(ctx.getSystemPrompt(), ctx));
@@ -124,7 +135,10 @@ export function registerCodexEvents(
 	});
 	pi.on("message_end", async (event) => {
 		if (event.message.role === "assistant") {
-			runtime.voice.finishAgentMessage(event.message.stopReason);
+			runtime.voice.finishAgentMessage(
+				event.message,
+				state.config.voice.forwardReasoningSummaries,
+			);
 			runtime.lanVoice.assistantMessage(event.message);
 		}
 	});
@@ -177,12 +191,13 @@ export function registerCodexEvents(
 		if (update.type === "text_delta" && typeof update.delta === "string") runtime.voice.streamDelta(update.delta);
 	});
 	pi.on("agent_start", async () => { runtime.voice.agentStarted(); runtime.lanVoice.agentStarted(); });
-	pi.on("agent_settled", async () => {
+	pi.on("agent_settled", async (_event, ctx) => {
 		state.pendingActiveProviderPromptCapture = false;
 		state.voiceSystemPromptOverride = undefined;
 		state.codexTurnState.reset();
 		runtime.voice.settleTurn();
 		runtime.lanVoice.agentSettled();
+		if (!state.config.voiceFeaturesOnly) void ui.refreshUsageStatus(ctx);
 	});
 	pi.on("before_provider_request", async (event, ctx) => {
 		state.cwd = ctx.cwd;
@@ -190,6 +205,7 @@ export function registerCodexEvents(
 	});
 	pi.on("session_before_compact", async (event, ctx) => {
 		state.cwd = ctx.cwd;
+		if (event.reason !== "manual") runtime.voice.announceCompactionStart(event.reason);
 		if (!resolveCodexRuntimePlan(ctx, state.config).nativeCompaction) return undefined;
 		return handleCodexSessionBeforeCompact(event, ctx, state, pi);
 	});

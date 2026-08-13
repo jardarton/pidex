@@ -8,7 +8,7 @@ The package itself is in [`packages/pi-codex-conversion`](packages/pi-codex-conv
 Read its [README](packages/pi-codex-conversion/README.md) for what the extension does
 and how to use it.
 
-See [UPSTREAM.md](UPSTREAM.md) for the fork point and the procedure to get changes from
+See [UPSTREAM.md](UPSTREAM.md) for the current upstream revision and the procedure to get changes from
 upstream. Fork-only behavior and the steps for recreating it are tracked in
 [PATCH.md](PATCH.md).
 

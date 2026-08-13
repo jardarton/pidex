@@ -4,10 +4,11 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Fork point | `6cd01ee8dc0a68f686c86dfb14b43fd601e65074` (2026-08-07) |
-| Package version at fork point | `@howaboua/pi-codex-conversion@3.0.10` |
+| Upstream revision | `d2e9b82f8abafa24f8488d5211f8307ea4815edb` (2026-08-13) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.14` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
+The table records the revision used for the most recent package refresh.
 
 ## What was copied unchanged
 
@@ -46,7 +47,7 @@ Consequences:
   script only runs on `prepublishOnly`, so it does not affect building, testing, or local
   use. Change the `platforms` list in `scripts/verify-codex-tool-binaries.mjs` if you ever
   publish this fork.
-- `typecheck` and the 115 tests are unaffected.
+- `typecheck` and the test suite are unaffected.
 - The `files` globs in `package.json` still name the `bin/**` paths. A glob that matches
   nothing is harmless.
 - Nothing rebuilds these. Upstream builds them in a GitHub Actions workflow that this fork
@@ -65,8 +66,8 @@ find packages/pi-codex-conversion -type d -name 'win32-*' -empty -delete
 git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   # once
 git fetch upstream
 
-# see what changed in the package since the fork point, ignoring binary churn
-git diff 6cd01ee8dc0a68f686c86dfb14b43fd601e65074..upstream/main \
+# see what changed in the package since the last refresh, ignoring binary churn
+git diff d2e9b82f8abafa24f8488d5211f8307ea4815edb..upstream/main \
   -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 

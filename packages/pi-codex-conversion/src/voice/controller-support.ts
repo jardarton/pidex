@@ -14,6 +14,7 @@ export const VOICE_STATUS_KEY = "codex-voice";
 export type VoiceSession = CodexRealtimeConversation | CodexDictationSession;
 export type VoiceState =
 	| { type: "idle" }
+	| { type: "reconnecting"; session: CodexRealtimeConversation }
 	| { type: "connecting"; mode: "realtime"; phase: "authorizing" }
 	| { type: "connecting"; mode: "realtime"; phase: "starting"; session: CodexRealtimeConversation }
 	| { type: "connecting"; mode: "dictation"; phase: "authorizing" }
@@ -23,7 +24,7 @@ export type VoiceState =
 	| { type: "failed"; message: string };
 
 export function currentVoiceSession(state: VoiceState): VoiceSession | undefined {
-	if (state.type === "conversation" || state.type === "dictation") return state.session;
+	if (state.type === "conversation" || state.type === "dictation" || state.type === "reconnecting") return state.session;
 	return state.type === "connecting" && state.phase === "starting" ? state.session : undefined;
 }
 
@@ -44,8 +45,9 @@ export function prepareRealtimeVoicePrompt(ctx: ExtensionContext): string | unde
 	}
 }
 
-export function renderVoiceStatus(ctx: ExtensionContext | undefined, status: string, muted: boolean): void {
+export function renderVoiceStatus(ctx: ExtensionContext | undefined, status: string, muted: boolean, inputTooQuiet: boolean): void {
 	if (!ctx || !status) return;
 	const mute = muted ? ctx.ui.theme.fg("warning", " · mic muted") : "";
-	ctx.ui.setStatus(VOICE_STATUS_KEY, `${ctx.ui.theme.fg("accent", `voice: ${status}`)}${mute}`);
+	const level = !muted && inputTooQuiet ? ctx.ui.theme.fg("warning", " · mic too quiet") : "";
+	ctx.ui.setStatus(VOICE_STATUS_KEY, `${ctx.ui.theme.fg("accent", `voice: ${status}`)}${mute}${level}`);
 }
