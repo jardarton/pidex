@@ -146,11 +146,26 @@ Defaults:
 - `Ctrl+Alt+D` is push-to-dictate; toggle behaviour is available in the Voice tab
 - `Ctrl+Alt+G` toggles the GipPity LAN server
 
-If audio devices are not configured, the first start asks the Pi agent to inspect the available endpoints and save the selected IDs. Dictation returns one editable transcript to Pi's input.
+Voice input and output follow the system defaults. Set `voice.inputDevice` or `voice.outputDevice` only to pin an endpoint. Dictation returns one editable transcript to Pi's input.
 
 The visible realtime prompt lives at `~/.pi/agent/REALTIME-SYSTEM-PROMPT.md`. A trusted project can append `.pi/REALTIME-SYSTEM-PROMPT.md`. Keep coding and project instructions in AGENTS.md rather than duplicating them into the spoken assistant.
 
 The package ships its current prompt template and cumulative schema changelog as raw Markdown. Realtime voice checks the global prompt marker when voice is engaged. If it is outdated, the extension points you and your agent to the changelog instead of rewriting personal customizations automatically. Both paths are shown in the Voice tab.
+
+Other Pi extensions can ask an active voice session to speak:
+
+```ts
+import { reportRealtimeVoicePrompt } from "@howaboua/pi-codex-conversion/realtime-voice";
+
+const announcement = {
+	id: "my-extension:finished",
+	prompt: "Briefly tell the user that the task finished.",
+};
+reportRealtimeVoicePrompt(pi, { ...announcement, active: true });
+reportRealtimeVoicePrompt(pi, { ...announcement, active: false });
+```
+
+For an ongoing state, send `active: true` when it begins and `active: false` when it ends. For a one-off announcement, send both immediately as above.
 
 Voice commands:
 

@@ -59,7 +59,7 @@ export interface ExecSessionManager {
 	terminateSession(sessionId: number): boolean;
 	onSessionChange(listener: (reason: ExecSessionChangeReason) => void): () => void;
 	onSessionExit(listener: (sessionId: number, command: string) => void): () => void;
-	shutdown(): void;
+	shutdown(): Promise<void>;
 }
 
 export interface ExecSessionManagerOptions {
@@ -89,6 +89,8 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 	const changeListeners = new Set<(reason: ExecSessionChangeReason) => void>();
 	const exitListeners = new Set<(sessionId: number, command: string) => void>();
 	const bridgeSessions = createBridgeSessionRuntime(options.bridgeBinaryPath);
+	let shuttingDown = false;
+	let shutdownPromise: Promise<void> | undefined;
 	let baseEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env) };
 	const defaultExecYieldTimeMs = options.defaultExecYieldTimeMs ?? DEFAULT_EXEC_YIELD_TIME_MS;
 	const defaultWriteYieldTimeMs = options.defaultWriteYieldTimeMs ?? DEFAULT_WRITE_YIELD_TIME_MS;
@@ -186,7 +188,7 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 	}
 
 	const bridgeHooks: BridgeSessionHooks = {
-		isOwned: (session) => sessions.get(session.id) === session,
+		isOwned: (session) => !shuttingDown && sessions.get(session.id) === session,
 		onOutput: (session, text) => appendOutput(session, text),
 		onExit: (session) => finalizeSession(session),
 	};
@@ -194,6 +196,7 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 	return {
 		setBaseEnv,
 		exec: async (input, cwd, signal, onUpdate) => {
+			if (shuttingDown) throw new Error("exec manager is shut down");
 			const shell = resolveShell(input.shell);
 			const workdir = resolveWorkdir(cwd, input.workdir);
 			const execution = resolveExecution(input.shell, input.cmd, input.env, baseEnv);
@@ -243,6 +246,7 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 			}
 		},
 		write: async (input, signal, onUpdate) => {
+			if (shuttingDown) throw new Error("exec manager is shut down");
 			if (signal?.aborted) {
 				throw new Error("write_stdin aborted");
 			}
@@ -311,6 +315,7 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 			session.terminating = true;
 			void bridgeSessions.terminate(session).catch(() => {});
 			setTimeout(() => {
+				if (shuttingDown) return;
 				if (session.exitCode === undefined || session.exitCode === null) void bridgeSessions.terminate(session).catch(() => {});
 			}, TERMINATE_ESCALATE_MS).unref?.();
 			notify(session, "terminate");
@@ -324,15 +329,16 @@ export function createExecSessionManager(options: ExecSessionManagerOptions = {}
 			exitListeners.add(listener);
 			return () => exitListeners.delete(listener);
 		},
-		shutdown: () => {
-			for (const session of sessions.values()) {
-				if (session.exitCode === undefined || session.exitCode === null) void bridgeSessions.terminate(session).catch(() => {});
+		shutdown: () => shutdownPromise ??= (async () => {
+			shuttingDown = true;
+			try {
+				await bridgeSessions.shutdown();
+			} finally {
+				sessions.clear();
+				commandHistory.clear();
+				completedResults.clear();
 			}
-			bridgeSessions.shutdown();
-			sessions.clear();
-			commandHistory.clear();
-			completedResults.clear();
-		},
+		})(),
 	};
 }
 

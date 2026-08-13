@@ -1,6 +1,6 @@
 {
   "name": "@howaboua/pi-codex-conversion",
-  "version": "3.0.12",
+  "version": "3.0.14",
   "description": "Codex-oriented tool and prompt adapter for pi coding agent",
   "type": "module",
   "repository": {
@@ -32,6 +32,10 @@
     "./code-mode-preflight": {
       "types": "./dist/code-mode-preflight.d.ts",
       "import": "./dist/code-mode-preflight.js"
+    },
+    "./realtime-voice": {
+      "types": "./dist/realtime-voice.d.ts",
+      "import": "./dist/realtime-voice.js"
     },
     "./*": "./*"
   },
@@ -111,7 +115,7 @@
     "selfsigned": "^3.0.1",
     "smol-toml": "^1.6.0",
     "tree-sitter-bash": "^0.25.1",
-    "undici": "8.5.0",
+    "undici": "8.10.0",
     "web-tree-sitter": "^0.26.7",
     "ws": "^8.21.0"
   },

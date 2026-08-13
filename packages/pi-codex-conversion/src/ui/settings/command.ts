@@ -9,9 +9,9 @@ import type { CodexLanVoiceServerController } from "../../voice/lan/controller.t
 import { ROUTABLE_SETTINGS_TABS, parseSettingsTab, type SettingsTab } from "./tabs.ts";
 import { openCodexSettingsScreen } from "./screen.ts";
 
-const VOICE_ACTIONS = ["voice realtime", "voice mute", "voice dictation", "voice stop", "voice server"] as const;
+const VOICE_ACTIONS = ["voice realtime", "voice mute", "voice dictation", "voice stop", "voice server", "voice setup"] as const;
 const CODEX_COMMAND_COMPLETIONS = [...ROUTABLE_SETTINGS_TABS.map(({ id }) => id), ...VOICE_ACTIONS];
-const CODEX_USAGE = "Usage: /codex [tools|openai|display|voice [realtime|mute|dictation|stop|server]|usage|about]";
+const CODEX_USAGE = "Usage: /codex [tools|openai|display|voice [realtime|mute|dictation|stop|server|setup]|usage|about]";
 
 export function registerCodexCommand(
 	pi: ExtensionAPI,
@@ -38,7 +38,10 @@ export function registerCodexCommand(
 	async function openSettings(ctx: ExtensionContext, tab: SettingsTab): Promise<void> {
 		if (!ctx.hasUI) {
 			if (tab === "usage") {
-				const { fetchCodexUsage, formatCodexUsage } = await import("./usage.ts");
+				const [{ fetchCodexUsage }, { formatCodexUsage }] = await Promise.all([
+					import("../../codex-usage/client.ts"),
+					import("../../codex-usage/format.ts"),
+				]);
 				try {
 					ctx.ui.notify(formatCodexUsage(await fetchCodexUsage(ctx)), "info");
 				} catch (error) {
@@ -67,6 +70,12 @@ export function registerCodexCommand(
 		handler: async (args, ctx) => {
 			state.config = readCodexConversionConfig();
 			const arg = args.trim().toLowerCase();
+
+			if (arg === "voice setup") {
+				await ctx.waitForIdle();
+				await voiceControls.setup(ctx);
+				return;
+			}
 
 			if (arg === "voice realtime" || arg === "voice dictation") {
 				if (ctx.mode !== "tui") { ctx.ui.notify("Codex voice requires interactive TUI mode", "error"); return; }

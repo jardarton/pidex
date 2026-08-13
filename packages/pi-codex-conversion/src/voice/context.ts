@@ -34,36 +34,46 @@ export async function buildRealtimeInitialItems(args: {
 	ctx: ExtensionContext;
 	config: CodexConversionConfig;
 	onSummary?: ((summary: string) => void) | undefined;
+	onSummaryStatus?: ((active: boolean) => void) | undefined;
 	signal?: AbortSignal | undefined;
 }): Promise<RealtimeInitialMessageItem[] | undefined> {
 	const selected = args.config.voice.contextModel;
-	if (!selected) return undefined;
-	const reasoning = args.config.voice.contextReasoning;
-	const cacheKey = voiceContextCacheKey(args.ctx, selected, reasoning);
-	let text = summaryCache.get(cacheKey);
-	if (!text) {
-		const generated = await createVoiceContextSummary(
-			args.ctx,
-			selected,
-			reasoning,
-			args.signal,
-		);
-		if (!generated) return undefined;
-		text = generated;
-		if (cacheKey === voiceContextCacheKey(args.ctx, selected, reasoning)) {
-			summaryCache.set(cacheKey, text);
-			while (summaryCache.size > SUMMARY_CACHE_LIMIT)
-				summaryCache.delete(summaryCache.keys().next().value!);
+	const initialItems: RealtimeInitialMessageItem[] = [];
+	if (selected) {
+		const reasoning = args.config.voice.contextReasoning;
+		const cacheKey = voiceContextCacheKey(args.ctx, selected, reasoning);
+		let text = summaryCache.get(cacheKey);
+		if (!text) {
+			args.onSummaryStatus?.(true);
+			try {
+				const generated = await createVoiceContextSummary(
+					args.ctx,
+					selected,
+					reasoning,
+					args.signal,
+				);
+				if (generated) {
+					text = generated;
+					if (cacheKey === voiceContextCacheKey(args.ctx, selected, reasoning)) {
+						summaryCache.set(cacheKey, text);
+						while (summaryCache.size > SUMMARY_CACHE_LIMIT)
+							summaryCache.delete(summaryCache.keys().next().value!);
+					}
+				}
+			} finally {
+				args.onSummaryStatus?.(false);
+			}
+		}
+		if (text) {
+			args.onSummary?.(text);
+			initialItems.push({
+				type: "message",
+				role: "developer",
+				content: [{ type: "input_text", text: renderVoiceStartupContext(text) }],
+			});
 		}
 	}
-	args.onSummary?.(text);
-	return [
-		{
-			type: "message",
-			role: "developer",
-			content: [{ type: "input_text", text: renderVoiceStartupContext(text) }],
-		},
-	];
+	return initialItems.length > 0 ? initialItems : undefined;
 }
 
 function renderVoiceStartupContext(summary: string): string {

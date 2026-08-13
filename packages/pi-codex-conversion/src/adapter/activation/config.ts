@@ -82,6 +82,10 @@ export interface CodexConversionConfig {
 	};
 	voice: {
 		v3Voice: RealtimeV3Voice;
+		autoResumeRealtime: boolean;
+		audioSetupCompleted: boolean;
+		delegationAcknowledgements: boolean;
+		forwardReasoningSummaries: boolean;
 		dictationShortcut: string;
 		realtimeShortcut: string;
 		muteShortcut: string;
@@ -131,6 +135,10 @@ export const DEFAULT_CODEX_CONVERSION_CONFIG: CodexConversionConfig = {
 	beta: { codeMode: false, responsesLite: false, v2UserMessageRetention: 64 },
 	voice: {
 		v3Voice: "cove",
+		autoResumeRealtime: false,
+		audioSetupCompleted: false,
+		delegationAcknowledgements: true,
+		forwardReasoningSummaries: true,
 		dictationShortcut: "ctrl+alt+d",
 		realtimeShortcut: "ctrl+alt+space",
 		muteShortcut: "ctrl+alt+m",
@@ -390,6 +398,22 @@ export function normalizeCodexConversionConfig(
 			v3Voice:
 				normalizeRealtimeV3Voice(voice["v3Voice"]) ??
 				DEFAULT_CODEX_CONVERSION_CONFIG.voice.v3Voice,
+			autoResumeRealtime: bool(
+				voice["autoResumeRealtime"],
+				DEFAULT_CODEX_CONVERSION_CONFIG.voice.autoResumeRealtime,
+			),
+			audioSetupCompleted: bool(
+				voice["audioSetupCompleted"],
+				DEFAULT_CODEX_CONVERSION_CONFIG.voice.audioSetupCompleted,
+			),
+			delegationAcknowledgements: bool(
+				voice["delegationAcknowledgements"],
+				DEFAULT_CODEX_CONVERSION_CONFIG.voice.delegationAcknowledgements,
+			),
+			forwardReasoningSummaries: bool(
+				voice["forwardReasoningSummaries"],
+				DEFAULT_CODEX_CONVERSION_CONFIG.voice.forwardReasoningSummaries,
+			),
 			dictationShortcut: stringValue(
 				voice["dictationShortcut"],
 				DEFAULT_CODEX_CONVERSION_CONFIG.voice.dictationShortcut,

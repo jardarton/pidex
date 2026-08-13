@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { formatNativeBinaryError } from "../../native-binary-error.ts";
 import { getBundledToolBinaryPath } from "../native/binary.ts";
@@ -21,10 +21,11 @@ export interface BridgeReadResponse {
 
 export interface ExecBridgeClient {
 	request<T = unknown>(request: Record<string, unknown>): Promise<T>;
-	shutdown(): void;
+	shutdown(): Promise<void>;
 }
 
 const MAX_BRIDGE_STDERR_CHARS = 16_000;
+const BRIDGE_SHUTDOWN_TIMEOUT_MS = 5_000;
 function appendBoundedText(current: string, next: string): string {
 	const combined = `${current}${next}`;
 	return combined.length > MAX_BRIDGE_STDERR_CHARS ? combined.slice(-MAX_BRIDGE_STDERR_CHARS) : combined;
@@ -53,6 +54,8 @@ export function createExecBridgeClient(binaryPath: () => string | undefined = ()
 	let bridgeStderrDecoder = new StringDecoder("utf8");
 	let bridgeClosing = false;
 	let bridgeResponded = false;
+	let bridgeShutdownPromise: Promise<void> | undefined;
+	let bridgeClosed = false;
 
 	function rejectPending(error: Error): void {
 		for (const pending of pendingBridgeRequests.values()) pending.reject(error);
@@ -78,6 +81,7 @@ export function createExecBridgeClient(binaryPath: () => string | undefined = ()
 	}
 
 	function getBridge(): ChildProcessWithoutNullStreams {
+		if (bridgeClosed) throw new Error("exec_bridge is shut down");
 		if (bridge && !bridge.killed) return bridge;
 		const binary = binaryPath();
 		if (!binary) throw new Error(`exec_bridge binary is not bundled for ${process.platform}-${process.arch}`);
@@ -107,28 +111,120 @@ export function createExecBridgeClient(binaryPath: () => string | undefined = ()
 		return bridge;
 	}
 
-	return {
-		async request<T = unknown>(request: Record<string, unknown>): Promise<T> {
-			const requestId = nextBridgeRequestId++;
-			const child = getBridge();
-			const response = await new Promise<BridgeResponse<T>>((resolve, reject) => {
-				pendingBridgeRequests.set(requestId, { resolve: resolve as (value: BridgeResponse) => void, reject });
-				child.stdin.write(`${JSON.stringify({ ...request, request_id: requestId })}\n`, (error) => {
-					if (!error) return;
-					pendingBridgeRequests.delete(requestId);
-					reject(new Error(formatExecBridgeWriteError(error, bridgeStderr, !bridgeResponded)));
-				});
+	async function sendRequest<T = unknown>(value: Record<string, unknown>, existingChild?: ChildProcessWithoutNullStreams): Promise<T> {
+		const requestId = nextBridgeRequestId++;
+		const child = existingChild ?? getBridge();
+		const response = await new Promise<BridgeResponse<T>>((resolve, reject) => {
+			pendingBridgeRequests.set(requestId, { resolve: resolve as (value: BridgeResponse) => void, reject });
+			child.stdin.write(`${JSON.stringify({ ...value, request_id: requestId })}\n`, (error) => {
+				if (!error) return;
+				pendingBridgeRequests.delete(requestId);
+				reject(new Error(formatExecBridgeWriteError(error, bridgeStderr, !bridgeResponded)));
 			});
-			if (!response.ok) throw new Error(response.error ?? "exec_bridge request failed");
-			return response.result as T;
-		},
-		shutdown() {
-			if (bridge && !bridge.killed) {
-				bridgeClosing = true;
-				bridge.kill();
-			}
-		},
+		});
+		if (!response.ok) throw new Error(response.error ?? "exec_bridge request failed");
+		return response.result as T;
+	}
+
+	async function request<T = unknown>(value: Record<string, unknown>): Promise<T> {
+		if (bridgeClosed) throw new Error("exec_bridge is shut down");
+		return sendRequest<T>(value);
+	}
+
+	async function shutdownBridge(): Promise<void> {
+		bridgeClosed = true;
+		const child = bridge;
+		if (!child || child.exitCode !== null || child.signalCode !== null) return;
+		const deadline = performance.now() + BRIDGE_SHUTDOWN_TIMEOUT_MS;
+		const shutdownRequest = sendRequest({ op: "shutdown" }, child);
+		bridgeClosing = true;
+		try {
+			await withTimeout(shutdownRequest, remainingMs(deadline), "exec_bridge shutdown timed out");
+			await waitForBridgeClose(child, remainingMs(deadline));
+		} catch (error) {
+			if (child.exitCode === null && child.signalCode === null) killBridgeProcessTree(child);
+			throw error;
+		}
+	}
+
+	return {
+		request,
+		shutdown: () => bridgeShutdownPromise ??= shutdownBridge(),
 	};
+}
+
+function killBridgeProcessTree(child: ChildProcessWithoutNullStreams): void {
+	const pid = child.pid;
+	if (pid && process.platform === "win32") {
+		spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], {
+			stdio: "ignore",
+			timeout: 2_000,
+			windowsHide: true,
+		});
+	} else if (pid) {
+		killUnixDescendants(pid);
+	}
+	if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+}
+
+function killUnixDescendants(rootPid: number): void {
+	const result = spawnSync("ps", ["-axo", "pid=,ppid=,pgid="], {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "ignore"],
+		timeout: 2_000,
+	});
+	if (result.status !== 0 || typeof result.stdout !== "string") return;
+	const processes = result.stdout.split("\n").flatMap((line) => {
+		const [pid, parentPid, processGroupId] = line.trim().split(/\s+/).map(Number);
+		return pid && parentPid !== undefined && processGroupId
+			? [{ pid, parentPid, processGroupId }]
+			: [];
+	});
+	const descendants = new Set([rootPid]);
+	for (;;) {
+		let changed = false;
+		for (const entry of processes) {
+			if (!descendants.has(entry.parentPid) || descendants.has(entry.pid)) continue;
+			descendants.add(entry.pid);
+			changed = true;
+		}
+		if (!changed) break;
+	}
+	const ownProcessGroup = processes.find((entry) => entry.pid === process.pid)?.processGroupId;
+	const groups = new Set(
+		processes
+			.filter((entry) => entry.pid !== rootPid && descendants.has(entry.pid))
+			.map((entry) => entry.processGroupId)
+			.filter((processGroupId) => processGroupId !== ownProcessGroup),
+	);
+	for (const processGroupId of groups) {
+		try { process.kill(-processGroupId, "SIGKILL"); } catch {}
+	}
+	for (const pid of descendants) {
+		if (pid === rootPid) continue;
+		try { process.kill(pid, "SIGKILL"); } catch {}
+	}
+}
+
+function remainingMs(deadline: number): number {
+	return Math.max(0, deadline - performance.now());
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	return Promise.race([
+		promise,
+		new Promise<never>((_resolve, reject) => {
+			timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+		}),
+	]).finally(() => {
+		if (timeout) clearTimeout(timeout);
+	});
+}
+
+function waitForBridgeClose(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+	return withTimeout(new Promise<void>((resolve) => child.once("close", () => resolve())), timeoutMs, "exec_bridge did not exit after shutdown");
 }
 
 export function chunkToBytes(chunk: string): Buffer {
