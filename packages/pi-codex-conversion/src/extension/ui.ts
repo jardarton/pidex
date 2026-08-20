@@ -5,11 +5,12 @@ import { NATIVE_COMPACTION_DISPLAY_MESSAGE_TYPE, NATIVE_COMPACTION_DISPLAY_TEXT,
 import { BACKGROUND_BASH_WIDGET_ID, registerBackgroundBashWidgetShortcuts, renderBackgroundBashWidget } from "../ui/background-bash-widget.ts";
 import type { CodexExtensionRuntime } from "./runtime.ts";
 import { renderCodexStatus } from "../ui/status.ts";
-import { isAdapterRuntime, resolveCodexRuntimePlan } from "../adapter/activation/runtime-plan.ts";
+import { isAdapterRuntime, resolveCodexRuntimePlanForState } from "../adapter/activation/runtime-plan.ts";
 import { fetchCodexWeeklyUsageLeft } from "../codex-usage/client.ts";
 
 export interface CodexUiController {
 	clearBackgroundWidget(): void;
+	invalidateBackgroundWidget(): void;
 	renderBackgroundWidget(): void;
 	invalidateUsageStatus(): void;
 	applyConfig(config: CodexConversionConfig, ctx: ExtensionContext, previousConfig: CodexConversionConfig): void;
@@ -18,13 +19,25 @@ export interface CodexUiController {
 
 export function registerCodexUi(pi: ExtensionAPI, runtime: CodexExtensionRuntime): CodexUiController {
 	let renderTimer: ReturnType<typeof setTimeout> | undefined;
+	let backgroundWidgetGeneration = 0;
 	let usageGeneration = 0;
-	const clearBackgroundWidget = () => {
+	const cancelScheduledBackgroundRender = () => {
+		backgroundWidgetGeneration += 1;
 		if (renderTimer) clearTimeout(renderTimer);
 		renderTimer = undefined;
+	};
+	const clearBackgroundWidget = () => {
+		cancelScheduledBackgroundRender();
 		runtime.backgroundWidget.ctx?.ui.setWidget(BACKGROUND_BASH_WIDGET_ID, undefined);
 	};
-	const renderBackgroundWidget = () => {
+	const invalidateBackgroundWidget = () => {
+		cancelScheduledBackgroundRender();
+		const ctx = runtime.backgroundWidget.ctx;
+		runtime.backgroundWidget.ctx = undefined;
+		ctx?.ui.setWidget(BACKGROUND_BASH_WIDGET_ID, undefined);
+	};
+	const renderBackgroundWidget = (generation = backgroundWidgetGeneration) => {
+		if (generation !== backgroundWidgetGeneration) return;
 		const ctx = runtime.backgroundWidget.ctx;
 		if (!ctx) return;
 		if (runtime.state.config.voiceFeaturesOnly || !runtime.state.config.ui.backgroundShellWidget) {
@@ -64,14 +77,14 @@ export function registerCodexUi(pi: ExtensionAPI, runtime: CodexExtensionRuntime
 		if (!runtime.backgroundWidget.ctx || runtime.state.config.voiceFeaturesOnly || !runtime.state.config.ui.backgroundShellWidget) return;
 		if (reason === "output") {
 			if (renderTimer) return;
+			const generation = backgroundWidgetGeneration;
 			renderTimer = setTimeout(() => {
 				renderTimer = undefined;
-				renderBackgroundWidget();
+				renderBackgroundWidget(generation);
 			}, 250);
 			return;
 		}
-		if (renderTimer) clearTimeout(renderTimer);
-		renderTimer = undefined;
+		cancelScheduledBackgroundRender();
 		renderBackgroundWidget();
 	});
 	const invalidateUsageStatus = () => {
@@ -84,9 +97,9 @@ export function registerCodexUi(pi: ExtensionAPI, runtime: CodexExtensionRuntime
 			runtime.state.weeklyUsageLeft = undefined;
 			return;
 		}
-		if (!isAdapterRuntime(resolveCodexRuntimePlan(ctx, runtime.state.config))) return;
+		if (!isAdapterRuntime(resolveCodexRuntimePlanForState(ctx, runtime.state))) return;
 		const weeklyUsageLeft = await fetchCodexWeeklyUsageLeft(ctx);
-		const plan = resolveCodexRuntimePlan(ctx, runtime.state.config);
+		const plan = resolveCodexRuntimePlanForState(ctx, runtime.state);
 		if (
 			generation !== usageGeneration ||
 			!ctx.hasUI ||
@@ -100,6 +113,7 @@ export function registerCodexUi(pi: ExtensionAPI, runtime: CodexExtensionRuntime
 
 	return {
 		clearBackgroundWidget,
+		invalidateBackgroundWidget,
 		renderBackgroundWidget,
 		invalidateUsageStatus,
 		refreshUsageStatus,
