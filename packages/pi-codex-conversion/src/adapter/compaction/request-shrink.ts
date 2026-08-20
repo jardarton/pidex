@@ -2,7 +2,7 @@ import type { NativeCompactionRequestBody, ResponsesInputItem } from "./serializ
 import { supportsResponsesLiteModel } from "../../providers/openai-codex/responses-lite-model.ts";
 
 export const COMPACTION_TRUNCATED_TOOL_OUTPUT_MESSAGE = "Output exceeded the available model context and was truncated";
-export const OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS = 372_000;
+export const OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS = 872_000;
 const CODEX_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 
 export type NativeCompactionShrinkResult = {
@@ -16,7 +16,7 @@ export type ShrinkNativeCompactionRequestOptions = {
 };
 
 export type NativeCompactionBudgetOptions = {
-	provider: string;
+	codexTransport: boolean;
 	model: string;
 	contextWindow?: number | null | undefined;
 };
@@ -57,7 +57,7 @@ function rewriteToolOutputItem(item: ResponsesInputItem): { recognized: boolean;
 }
 
 export function resolveNativeCompactionRequestBudget(options: NativeCompactionBudgetOptions): number | undefined {
-	if (options.provider === "openai-codex" && supportsResponsesLiteModel(options.model)) {
+	if (options.codexTransport && supportsResponsesLiteModel(options.model)) {
 		return OPENAI_CODEX_COMPACTION_ENDPOINT_BUDGET_TOKENS;
 	}
 	const contextWindow = options.contextWindow;

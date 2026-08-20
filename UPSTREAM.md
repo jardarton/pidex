@@ -4,15 +4,15 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `d2e9b82f8abafa24f8488d5211f8307ea4815edb` (2026-08-13) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.14` |
+| Upstream revision | `e12067caadc38da4e785d0300202aac233ae3b2f` (2026-08-19) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.18` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
 
 ## What was copied unchanged
 
-- `packages/pi-codex-conversion/` — all tracked files, byte for byte
+- `packages/pi-codex-conversion/` — all tracked files except the customizations below
 - `tsconfig.base.json`
 - `LICENSE`
 - `.gitignore`
@@ -33,6 +33,9 @@ The table records the revision used for the most recent package refresh.
   own copies of those files.
 - `packages/pi-codex-conversion/package.json` is unchanged, so `repository`, `homepage`, and
   `bugs` still point at upstream. Change them before you publish this fork to npm.
+- `src/voice/lan/ntfy.ts` and its integration in `src/voice/lan/controller.ts` notify an
+  optional ntfy topic when the LAN voice server starts. The behavior is covered by
+  `tests/voice-lan-ntfy.test.ts`.
 - The 12 Windows binaries (`**/bin/win32-x64/**` and `**/bin/win32-arm64/**`, 39.4 MB) were
   deleted. See below.
 
@@ -67,7 +70,7 @@ git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   
 git fetch upstream
 
 # see what changed in the package since the last refresh, ignoring binary churn
-git diff d2e9b82f8abafa24f8488d5211f8307ea4815edb..upstream/main \
+git diff e12067caadc38da4e785d0300202aac233ae3b2f..upstream/main \
   -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 
