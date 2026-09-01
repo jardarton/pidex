@@ -4,8 +4,8 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `e12067caadc38da4e785d0300202aac233ae3b2f` (2026-08-19) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.18` |
+| Upstream revision | `bec3eaa8df87b7c0c04295d6a6db4ee1caa9939c` (2026-08-26) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.23` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
@@ -18,7 +18,8 @@ The table records the revision used for the most recent package refresh.
 - `.gitignore`
 - `bun.lock`
 - `scripts/workspaces.mjs`, `scripts/active-packages.mjs`, `scripts/changed-workspaces.mjs`,
-  `scripts/check-changed.mjs`, `scripts/verify-pi-extension-artifact.mjs`
+  `scripts/check-changed.mjs`, `scripts/build-extension-changelog.mjs`,
+  `scripts/verify-pi-extension-artifact.mjs`
 
 ## What is different
 
@@ -31,8 +32,11 @@ The table records the revision used for the most recent package refresh.
 - This `README.md` and `UPSTREAM.md` are new. The upstream root `README.md`, `AGENTS.md`,
   and `CHANGELOG.md` describe the whole monorepo and were not copied; the package keeps its
   own copies of those files.
-- `packages/pi-codex-conversion/package.json` is unchanged, so `repository`, `homepage`, and
-  `bugs` still point at upstream. Change them before you publish this fork to npm.
+- `packages/pi-codex-conversion/package.json` omits the browser CDP sync check because its
+  source package is not part of this snapshot. `repository`, `homepage`, and `bugs` still
+  point at upstream. Change them before you publish this fork to npm.
+- The browser CDP entry-point test covers only this package's entry point. The second entry
+  point belongs to the omitted `pi-skill-chrome-cdp` package.
 - `src/voice/lan/ntfy.ts` and its integration in `src/voice/lan/controller.ts` notify an
   optional ntfy topic when the LAN voice server starts. The behavior is covered by
   `tests/voice-lan-ntfy.test.ts`.
@@ -70,7 +74,7 @@ git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   
 git fetch upstream
 
 # see what changed in the package since the last refresh, ignoring binary churn
-git diff e12067caadc38da4e785d0300202aac233ae3b2f..upstream/main \
+git diff 7558b3d4c90c4297676403c6a71f384817802513..upstream/main \
   -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 

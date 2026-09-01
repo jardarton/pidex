@@ -3,11 +3,15 @@ import { normalizeTimeoutMs } from "./sse.ts";
 import { buildCachedWebSocketRequestBody } from "./websocket-continuation.ts";
 import { acquireWebSocket, parseWebSocket, startWebSocketOutputOnFirstEvent } from "./websocket.ts";
 import { assertSuccessfulCodexOutput, assertSuccessfulCodexStatus, mapCodexEvents, processMappedCodexResponsesStream } from "./stream-events.ts";
-import type { CachedWebSocketRequestBodyResult, CanonicalHistoryDecision, CodexDiagnosticsLane, CodexDiagnosticsSink, CodexPrewarmResult, OpenAICodexStreamOptions, ResponsesBody } from "./types.ts";
+import type { CachedWebSocketRequestBodyResult, CanonicalHistoryDecision, CodexDiagnosticsLane, CodexDiagnosticsSink, CodexPrewarmDiagnostics, CodexPrewarmResult, OpenAICodexStreamOptions, ResponsesBody } from "./types.ts";
 import type { CodexTurnState } from "./turn-state.ts";
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS } from "./constants.ts";
 import { codexDiagnosticsFailure, noThrowCodexDiagnosticsSink } from "./diagnostic-failure.ts";
 import { recordCanonicalSessionResponse, type CanonicalSessionToken } from "./session-continuity.ts";
+
+export function codexCacheKeepaliveSocketSessionId(sessionId: string): string {
+	return `${sessionId}:cache-keepalive`;
+}
 
 export async function processWebSocketStream<TApi extends Api>(
 	url: string,
@@ -31,7 +35,7 @@ export async function processWebSocketStream<TApi extends Api>(
 	const idleTimeoutMs = normalizeTimeoutMs(options?.timeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS, "timeoutMs");
 	const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs, "websocketConnectTimeoutMs");
 
-	const { socket, entry, release, reused } = await acquireWebSocket(url, headers, options?.sessionId, accountId, options?.signal, websocketConnectTimeoutMs, options?.env);
+	const { socket, entry, release, reused, socketAgeMs } = await acquireWebSocket(url, headers, options?.sessionId, accountId, options?.signal, websocketConnectTimeoutMs, options?.env);
 	let keepConnection = true;
 	let released = false;
 	const responseItems: unknown[] = [];
@@ -72,7 +76,13 @@ export async function processWebSocketStream<TApi extends Api>(
 				sentInputItems: requestBody.input.length,
 				model: fullBody.model,
 				socketReused: reused,
+				socketAgeMs,
+				socketLane: "main",
 				continuation: cachedRequest.decision,
+				...(entry?.continuation ? {
+					continuationBaselineInputItems: entry.continuation.lastRequestBody.input.length,
+					continuationBaselineResponseItems: entry.continuation.lastResponseItems.length,
+				} : {}),
 				...(canonical?.decision ? { canonicalHistory: canonical.decision } : {}),
 				...(options?.compactionDiagnostics ? { compaction: structuredClone(options.compactionDiagnostics) } : {}),
 				previousResponseId: Boolean(requestBody.previous_response_id),
@@ -144,11 +154,17 @@ export async function prewarmWebSocket(
 	turnState?: CodexTurnState,
 	diagnostics?: CodexDiagnosticsSink | undefined,
 	preserveContinuation = false,
+	prewarm: CodexPrewarmDiagnostics = { kind: "ordinary" },
+	generate = false,
+	retainSocket = true,
 ): Promise<CodexPrewarmResult> {
 	const recordDiagnostics = noThrowCodexDiagnosticsSink(diagnostics);
 	const websocketConnectTimeoutMs = normalizeTimeoutMs(options.websocketConnectTimeoutMs, "websocketConnectTimeoutMs");
-	const socketSessionId = preserveContinuation ? `${options.sessionId}:cache-keepalive` : options.sessionId;
-	const { socket, entry, release, reused } = await acquireWebSocket(url, headers, socketSessionId, accountId, options.signal, websocketConnectTimeoutMs, options.env);
+	const socketSessionId = preserveContinuation && options.sessionId
+		? codexCacheKeepaliveSocketSessionId(options.sessionId)
+		: options.sessionId;
+	const socketLane = preserveContinuation ? "keepalive" : "main";
+	const { socket, entry, release, reused, socketAgeMs } = await acquireWebSocket(url, headers, socketSessionId, accountId, options.signal, websocketConnectTimeoutMs, options.env);
 	let keepConnection = true;
 	const responseItems: unknown[] = [];
 	let responseId: string | undefined;
@@ -163,10 +179,14 @@ export async function prewarmWebSocket(
 			attempt: 1,
 			fullInputItems: body.input.length,
 			sentInputItems: body.input.length,
+			model: body.model,
 			socketReused: reused,
+			socketAgeMs,
+			socketLane,
+			prewarm,
 			previousResponseId: Boolean(body.previous_response_id),
 		});
-		socket.send(JSON.stringify({ type: "response.create", ...body, generate: false }));
+		socket.send(JSON.stringify({ type: "response.create", ...body, ...(generate ? {} : { generate: false }) }));
 		for await (const event of mapCodexEvents(parseWebSocket(socket, options.signal, idleTimeoutMs, (value) => {
 			if (!preserveContinuation) turnState?.capturePrewarm(value);
 		}))) {
@@ -183,6 +203,7 @@ export async function prewarmWebSocket(
 						inputTokens: Math.max(0, (responseUsage.input_tokens ?? 0) - cacheRead - cacheWrite),
 						cachedInputTokens: cacheRead,
 						cacheWriteInputTokens: cacheWrite,
+						...(generate ? { outputTokens: responseUsage.output_tokens ?? 0 } : {}),
 					};
 				}
 			}
@@ -191,7 +212,15 @@ export async function prewarmWebSocket(
 		if (!preserveContinuation && entry && responseId) {
 			entry.continuation = { lastRequestBody: body, lastResponseId: responseId, lastResponseItems: responseItems };
 		}
-		recordDiagnostics?.({ type: "prewarm-ready", transport: "websocket", socketReused: reused });
+		recordDiagnostics?.({
+			type: "prewarm-ready",
+			transport: "websocket",
+			socketReused: reused,
+			socketAgeMs,
+			socketLane,
+			prewarm,
+			...(usage ? { usage } : {}),
+		});
 		return { socketReused: reused, ...(usage ? { usage } : {}) };
 	} catch (error) {
 		keepConnection = false;
@@ -203,6 +232,6 @@ export async function prewarmWebSocket(
 		});
 		throw error;
 	} finally {
-		release({ keep: keepConnection });
+		release({ keep: keepConnection && retainSocket });
 	}
 }

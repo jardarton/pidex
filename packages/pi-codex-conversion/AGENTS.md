@@ -1,4 +1,6 @@
-- Keep Pi behavior as close as practical to the Codex toolkit; document intentional differences.
+- Port model-native Codex prompt/tool/transport/context behaviour into Pi; add Codex features only for model fit, quota efficiency, or Pi integration.
+- Preserve prompt-cache/continuation across prompt, tool, request, replay, and transport changes.
+- Own GPT harness integration, not universal compatibility, UI, enterprise, or a Pi fork; route uncommon needs to documented overrides, other extensions, or forks.
 - Responses transport recovery follows Codex: initial generation plus five fresh full-request WebSocket retries, then sticky SSE for the session; 426 and WebSocket close 1009 fall back immediately.
 - Pi intentionally retries `server_is_overloaded` and `slow_down` across WebSocket/SSE with a shared three-minute wait budget.
 - Streamed rate-limit delays are exact within a shared three-minute budget; longer delays fail instead of retrying early.
@@ -11,7 +13,7 @@
 - `tools.customRustBinariesDir` is the shared filename-based override for tool and voice helpers; native startup incompatibilities point there without dumping loader noise.
 - Vendored apply-patch engine, path-uri, and absolute-path sources track one Codex commit. Pi-owned changes belong only in `standalone_executable.rs` and the `pi-apply-patch-fs` adapter.
 - Do not accept review-driven drift from stock Pi behavior unless backend-verified or intentional.
-- Provider names are not backend identity. Renamed Codex providers exist for separate ChatGPT subscription accounts or model catalogs under distinct Pi provider IDs; when API and resolved endpoint remain canonical, preserve first-party Codex transport, Fast Mode, and account isolation.
+- Provider names and endpoint routing are not backend identity. Models using `openai-codex-responses` retain first-party Codex transport, Fast Mode, and account isolation across renamed providers and proxies.
 - Proxies are deliberate monitoring, routing, and policy seams. Environment HTTP(S)/ALL proxies do not change the canonical ChatGPT contract; explicitly configured `openai-responses` passthrough providers are different and receive only the capabilities their backend supports. Never reject either path from provider name alone or assume “proxy” means non-ChatGPT.
 - Native compaction supports only OpenAI Codex and explicitly configured OpenAI/Codex passthrough proxies; V2 must preserve raw Responses output-item access rather than delegate to arbitrary registered provider streams.
 - After TypeScript topology changes, run root `bun run knip`; it enforces file, dependency, cycle, and export-surface hygiene.

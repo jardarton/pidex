@@ -3,15 +3,14 @@ import type { Api, Context, Model } from "@earendil-works/pi-ai";
 import { createGrammarToolInputProperties } from "./constrained-sampling.js";
 import { extractAccountId, buildWebSocketHeaders, PI_CODEX_CONVERSION_ORIGINATOR, resolveCodexRequestRouting, resolveCodexWebSocketUrl } from "./openai-codex/headers.ts";
 import { noThrowCodexDiagnosticsSink } from "./openai-codex/diagnostic-failure.ts";
-import { DEFAULT_CODEX_BASE_URL } from "./openai-codex/constants.ts";
 import { buildRequestBody } from "./openai-codex/request-body.ts";
-import { openAICodexModelsWithDaybreak } from "./openai-codex/model-catalog.ts";
+import { openAICodexProviderModelsWithDaybreak } from "./openai-codex/model-catalog.ts";
 import { supportsResponsesLiteModel } from "./openai-codex/responses-lite-model.ts";
 import { applyResponsesLiteRequest, applyResponsesLiteWebSocketMetadata, isResponsesLiteRequest, namespaceExistingResponsesLiteRequest, prepareResponsesLiteRequestImages } from "./openai-codex/responses-lite.ts";
-import type { CodexDiagnosticsSink, CodexPrewarmResult, OpenAICodexStreamOptions, ResponsesBody } from "./openai-codex/types.ts";
-import { recordWebSocketSseFallback } from "./openai-codex/websocket.ts";
+import type { CodexDiagnosticsSink, CodexPrewarmDiagnostics, CodexPrewarmResult, OpenAICodexStreamOptions, ResponsesBody } from "./openai-codex/types.ts";
+import { closeOpenAICodexWebSocketSessions, recordWebSocketSseFallback } from "./openai-codex/websocket.ts";
 import { isWebSocketMessageTooBigError, isWebSocketUpgradeRequiredError } from "./openai-codex/websocket-connection.ts";
-import { prewarmWebSocket } from "./openai-codex/websocket-stream.ts";
+import { codexCacheKeepaliveSocketSessionId, prewarmWebSocket } from "./openai-codex/websocket-stream.ts";
 import { openaiCodexNativeOAuthProvider } from "./openai-codex/oauth.ts";
 import { type CodexTurnState, withCodexTurnState } from "./openai-codex/turn-state.ts";
 import { withRemoteCompactionV2Feature } from "./openai-responses/compaction-v2-feature.ts";
@@ -25,8 +24,12 @@ import {
 export { buildRequestBody } from "./openai-codex/request-body.ts";
 export { parseSSE } from "./openai-codex/sse.ts";
 export { buildCachedWebSocketRequestBody } from "./openai-codex/websocket-continuation.ts";
-export { closeOpenAICodexWebSocketSessions } from "./openai-codex/websocket.ts";
+export { closeOpenAICodexWebSocketSessions };
 export type { ResponsesBody } from "./openai-codex/types.ts";
+
+export function closeOpenAICodexKeepaliveWebSocketSession(sessionId: string): void {
+	closeOpenAICodexWebSocketSessions(codexCacheKeepaliveSocketSessionId(sessionId));
+}
 
 async function prepareCodexRequestBody<TApi extends Api>(
 	model: Model<TApi>,
@@ -59,8 +62,10 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 		useResponsesLite?: (model: Model<Api>) => boolean;
 		turnState?: CodexTurnState | undefined;
 		getDiagnostics?: (() => CodexDiagnosticsSink | undefined) | undefined;
-		preparedBody?: ResponsesBody | undefined;
 		preserveContinuation?: boolean | undefined;
+		retainSocket?: boolean | undefined;
+		generate?: boolean | undefined;
+		prewarmDiagnostics?: CodexPrewarmDiagnostics | undefined;
 	},
 ): Promise<CodexPrewarmResult | undefined> {
 	const runtimeConfig = deps.getConfig?.();
@@ -73,7 +78,7 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 	const effectiveOptions = runtimeConfig?.compaction?.responsesCompaction
 		? { ...options, grammarToolInputProperties, headers: withRemoteCompactionV2Feature(options.headers) }
 		: { ...options, grammarToolInputProperties };
-	const body = deps.preparedBody ? structuredClone(deps.preparedBody) : await prepareCodexRequestBody(model, context, effectiveOptions, responsesLite);
+	const body = await prepareCodexRequestBody(model, context, effectiveOptions, responsesLite);
 	const accountId = extractAccountId(options.apiKey);
 	const routing = resolveCodexRequestRouting({
 		model: body.model,
@@ -86,7 +91,19 @@ export async function prewarmOpenAICodexWebSocket<TApi extends Api>(
 	const websocketBody = withCodexTurnState(responsesLite ? applyResponsesLiteWebSocketMetadata(body) : body, turnState);
 	const diagnostics = noThrowCodexDiagnosticsSink(deps.getDiagnostics?.());
 	try {
-		return await prewarmWebSocket(resolveCodexWebSocketUrl(model.baseUrl), websocketBody, headers, accountId, effectiveOptions, turnState, diagnostics, deps.preserveContinuation);
+		return await prewarmWebSocket(
+			resolveCodexWebSocketUrl(model.baseUrl),
+			websocketBody,
+			headers,
+			accountId,
+			effectiveOptions,
+			turnState,
+			diagnostics,
+			deps.preserveContinuation,
+			deps.prewarmDiagnostics,
+			deps.generate,
+			deps.retainSocket,
+		);
 	} catch (error) {
 		if (!options.signal?.aborted && (isWebSocketUpgradeRequiredError(error) || isWebSocketMessageTooBigError(error))) {
 			recordWebSocketSseFallback(options.sessionId);
@@ -105,8 +122,7 @@ export function registerOpenAICodexCustomProvider(pi: ExtensionAPI, options: {
 }): void {
 	pi.registerProvider("openai-codex", {
 		api: "openai-codex-responses",
-		baseUrl: DEFAULT_CODEX_BASE_URL,
-		models: openAICodexModelsWithDaybreak(),
+		models: openAICodexProviderModelsWithDaybreak(),
 		oauth: openaiCodexNativeOAuthProvider,
 		streamSimple: (model, context, streamOptions) => createCodexTransportStream(model, context, streamOptions, {
 			prepareRequestBody: prepareCodexRequestBody,

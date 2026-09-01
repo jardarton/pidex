@@ -19,7 +19,11 @@ const SKILL_FILENAMES = ["SKILL.md", "SKILL.MD"];
 export function defaultSkillsDir() {
 	const scriptPath = fileURLToPath(import.meta.url);
 	const agentDir = dirname(dirname(dirname(scriptPath)));
-	return join(agentDir, "lazy-skills");
+	return join(agentDir, "skills");
+}
+
+export function defaultSessionSkillsDir(cwd = process.cwd()) {
+	return join(cwd, ".pi", "skills");
 }
 
 function decodeQuotedScalar(value, path, field) {
@@ -159,7 +163,7 @@ export function discoverSkills(root = defaultSkillsDir()) {
 		const directory = join(root, entry.name);
 		if (entryKind(entry, directory) !== "directory") continue;
 
-		const directSkill = loadSkill(directory, entry.name, "other");
+		const directSkill = loadSkill(directory, entry.name, undefined);
 		if (directSkill) {
 			skills.push(directSkill);
 			continue;
@@ -183,43 +187,72 @@ export function discoverSkills(root = defaultSkillsDir()) {
 		}
 		names.set(skill.name, skill.packageName);
 	}
-	return skills.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+	return sortSkills(skills);
+}
+
+function categoryRank(category) {
+	if (!category) return 0;
+	if (category === "session") return 1;
+	return 2;
+}
+
+function sortSkills(skills) {
+	return skills.sort((a, b) => categoryRank(a.category) - categoryRank(b.category) || (a.category ?? "").localeCompare(b.category ?? "") || a.name.localeCompare(b.name));
+}
+
+export function discoverVisibleSkills(
+	globalRoot = defaultSkillsDir(),
+	sessionRoot = globalRoot === defaultSkillsDir()
+		? defaultSessionSkillsDir()
+		: undefined,
+) {
+	const byName = new Map(discoverSkills(globalRoot).map((skill) => [skill.name, skill]));
+	if (!sessionRoot) return sortSkills([...byName.values()]);
+	for (const skill of discoverSkills(sessionRoot)) {
+		byName.set(skill.name, { ...skill, category: "session" });
+	}
+	return sortSkills([...byName.values()]);
 }
 
 export function parseRequest(input) {
 	if (typeof input !== "string") throw new Error("skills expects a string command");
 	const parts = input.trim().split(/\s+/).filter(Boolean);
 	const [action, ...arguments_] = parts;
-	if (action === "list") return { action, categories: [...new Set(arguments_)] };
-	if (action === "read" && arguments_.length === 1) {
-		return { action, name: arguments_[0] };
+	if (!action || action === "list") return { action: "list", categories: [...new Set(arguments_)] };
+	if (action === "read" && arguments_.length >= 1) {
+		return { action, name: arguments_[0], references: [...new Set(arguments_.slice(1))] };
 	}
-	if (action === "read") throw new Error('read expects exactly one skill name: "read <exact-skill-name>"');
-	throw new Error('Expected "list", "list <category>...", or "read <exact-skill-name>"');
+	if (action === "read") {
+		throw new Error('read expects one skill name and optional reference names: "read <exact-skill-name> [reference...]"');
+	}
+	throw new Error('Expected "list", "list <category>...", or "read <exact-skill-name> [reference...]"');
 }
 
 function formatSkillList(skills, requestedCategories = []) {
-	const availableCategories = [...new Set(skills.map(({ category }) => category))].sort();
+	const availableCategories = [...new Set(skills.flatMap(({ category }) => category ? [category] : []))].sort();
 	const unknown = requestedCategories.filter((category) => !availableCategories.includes(category));
 	if (unknown.length) {
-		throw new Error(`Unknown categor${unknown.length === 1 ? "y" : "ies"}: ${unknown.join(", ")}. Available: ${availableCategories.join(", ") || "none"}`);
+		throw new Error("Unknown categor" + (unknown.length === 1 ? "y" : "ies") + ": " + unknown.join(", ") + ". Available: " + (availableCategories.join(", ") || "none"));
 	}
 	const selected = requestedCategories.length
 		? skills.filter(({ category }) => requestedCategories.includes(category))
 		: skills;
 	if (!selected.length) return "No skills available.";
 
+	const topLevel = selected.filter(({ category }) => !category);
 	const groups = new Map();
 	for (const skill of selected) {
+		if (!skill.category) continue;
 		const group = groups.get(skill.category) ?? [];
 		group.push(skill);
 		groups.set(skill.category, group);
 	}
-	const lines = [];
+	const lines = topLevel.map((skill) => "- " + skill.name + ": " + skill.description.replace(/\s+/g, " ").trim());
+	if (topLevel.length && groups.size) lines.push("");
 	for (const [category, categorySkills] of groups) {
-		lines.push(`# ${category.replace(/-/g, " ").toUpperCase()}`);
+		lines.push("# " + category.replace(/-/g, " ").toUpperCase());
 		for (const skill of categorySkills) {
-			lines.push(`- ${skill.name}: ${skill.description.replace(/\s+/g, " ").trim()}`);
+			lines.push("- " + skill.name + ": " + skill.description.replace(/\s+/g, " ").trim());
 		}
 	}
 	return lines.join("\n");
@@ -278,9 +311,38 @@ export function packageFiles(skill) {
 	});
 }
 
-function formatSkill(skill) {
+function formatSkillPaths(skill) {
 	const paths = packageFiles(skill);
-	return `${skill.body}\n\n---\nSkill paths (${paths.length}):\n${paths.map((path) => `- ${path}`).join("\n")}`;
+	return `---\nSkill paths (${paths.length}):\n${paths.map((path) => `- ${path}`).join("\n")}`;
+}
+
+function formatSkill(skill) {
+	return `${skill.body}\n\n${formatSkillPaths(skill)}`;
+}
+
+function referenceFiles(skill) {
+	const root = resolve(skill.directory, "references");
+	return packageFiles(skill).filter((path) => isWithin(root, path) && path.toLowerCase().endsWith(".md") && statSync(path).isFile());
+}
+
+function readReferences(skill, references) {
+	const root = resolve(skill.directory, "references");
+	const available = new Map(referenceFiles(skill).map((path) => [
+		relative(root, path).replaceAll(sep, "/").replace(/\.md$/i, ""),
+		path,
+	]));
+	const selected = references.map((reference) => {
+		const path = available.get(reference);
+		if (!path) {
+			const choices = [...available.keys()].join(", ") || "none";
+			throw new Error(`Unknown reference "${reference}" for skill "${skill.name}". Available: ${choices}`);
+		}
+		return { reference, content: readFileSync(path, "utf8").trim() };
+	});
+	const content = selected.length === 1
+		? selected[0].content
+		: selected.map(({ reference, content: body }) => `--- ${reference} ---\n${body}`).join("\n\n");
+	return `${content}\n\n${formatSkillPaths(skill)}`;
 }
 
 function enforceOutputLimit(output) {
@@ -291,9 +353,9 @@ function enforceOutputLimit(output) {
 	return output;
 }
 
-export function run(input, root = defaultSkillsDir()) {
+export function run(input, globalRoot = defaultSkillsDir(), sessionRoot = globalRoot === defaultSkillsDir() ? defaultSessionSkillsDir() : undefined) {
 	const request = parseRequest(input);
-	const skills = discoverSkills(root);
+	const skills = discoverVisibleSkills(globalRoot, sessionRoot);
 	if (request.action === "list") {
 		return enforceOutputLimit(formatSkillList(skills, request.categories));
 	}
@@ -301,7 +363,7 @@ export function run(input, root = defaultSkillsDir()) {
 	if (!skill) {
 		throw new Error(`Unknown skill "${request.name}". Available: ${skills.map(({ name }) => name).join(", ") || "none"}`);
 	}
-	return enforceOutputLimit(formatSkill(skill));
+	return enforceOutputLimit(request.references.length ? readReferences(skill, request.references) : formatSkill(skill));
 }
 
 function isMainModule() {

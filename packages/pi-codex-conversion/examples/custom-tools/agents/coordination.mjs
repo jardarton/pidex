@@ -1,31 +1,28 @@
 #!/usr/bin/env node
 
+import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
 import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 
+const fields = (...names) => new Set(["action", "host", ...names]);
 const ACTION_FIELDS = {
-	help: new Set(["action"]),
-	find: new Set(["action", "query", "status", "include_self"]),
-	send: new Set([
-		"action",
-		"target",
-		"text",
-		"queue",
-		// Accepted for live sessions that cached the previous contract. New callers
-		// use queue; prompt/steer are both Pi's context-sensitive submit action.
-		"mode",
-		"wait",
-		"timeout_ms",
-	]),
-	wait: new Set(["action", "target", "timeout_ms"]),
-	read: new Set(["action", "target", "source", "lines"]),
-	answer: new Set(["action", "target", "answers", "wait", "timeout_ms"]),
+	help: fields(),
+	find: fields("query", "status", "include_self"),
+	send: fields("target", "text", "wait", "timeout_ms"),
+	wait: fields("target", "timeout_ms"),
+	read: fields("target", "source", "lines"),
+	answer: fields("target", "answers", "wait", "timeout_ms"),
 };
+const HOSTS = new Set(["desktop", "laptop", "server"]);
+const HOST_ALIASES = new Map([
+	["desktop", "desktop"],
+	["laptop", "laptop"],
+	["server", "server"],
+]);
 const STATUSES = new Set(["blocked", "done", "idle", "unknown", "working"]);
 const TERMINAL_STATUSES = new Set(["done", "idle"]);
-const LEGACY_MODES = new Set(["auto", "prompt", "steer", "follow_up"]);
 const SOURCES = new Set(["latest", "visible", "recent"]);
 const DEFAULT_TIMEOUT_MS = 300_000;
 const MAX_TIMEOUT_MS = 1_800_000;
@@ -36,6 +33,8 @@ const DELIVERY_TIMEOUT_MS = 5_000;
 const STATUS_ORDER = { blocked: 0, working: 1, done: 2, idle: 3, unknown: 4 };
 const AGENT_DIR =
 	process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+const REMOTE_SOCKET_PATH = process.env.AGENTS_REMOTE_SOCKET_PATH;
+const REMOTE_TOOL_PATH = process.env.AGENTS_REMOTE_COORDINATION_TOOL;
 
 function isObject(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -85,6 +84,14 @@ function parseAnswers(value) {
 	});
 }
 
+function parseHost(value) {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || !HOSTS.has(value)) {
+		throw new Error("host must be one of: desktop, laptop, server");
+	}
+	return value;
+}
+
 export function parseRequest(text) {
 	if (text.trim() === "help") return { action: "help" };
 	let value;
@@ -106,55 +113,121 @@ export function parseRequest(text) {
 	);
 	if (unknown.length)
 		throw new Error(`unknown ${value.action} field(s): ${unknown.join(", ")}`);
-	if (value.action === "help") return { action: "help" };
+	const host = parseHost(value.host);
+	const routed = (request) => (host ? { ...request, host } : request);
+	if (value.action === "help") return routed({ action: "help" });
 
 	if (value.action === "find") {
 		if (value.query !== undefined && typeof value.query !== "string")
 			throw new Error("query must be a string when provided");
 		if (value.status !== undefined && !STATUSES.has(value.status))
 			throw new Error("status is invalid");
-		return {
+		return routed({
 			action: "find",
 			...(value.query?.trim() ? { query: value.query.trim() } : {}),
 			...(value.status ? { status: value.status } : {}),
 			include_self: optionalBoolean(value.include_self, "include_self") === true,
-		};
+		});
 	}
 
 	const target = cleanString(value.target, "target");
 	if (value.action === "wait")
-		return { action: "wait", target, timeout_ms: parseTimeout(value.timeout_ms) };
+		return routed({
+			action: "wait",
+			target,
+			timeout_ms: parseTimeout(value.timeout_ms),
+		});
 	if (value.action === "read") {
 		const source = value.source ?? "latest";
 		if (!SOURCES.has(source)) throw new Error("source is invalid");
 		const lines = value.lines ?? 40;
 		if (!Number.isInteger(lines) || lines < 1 || lines > 200)
 			throw new Error("lines must be an integer from 1 to 200");
-		return { action: "read", target, source, lines };
+		return routed({ action: "read", target, source, lines });
 	}
 	if (value.action === "answer")
-		return {
+		return routed({
 			action: "answer",
 			target,
 			answers: parseAnswers(value.answers),
 			wait: optionalBoolean(value.wait, "wait") ?? true,
 			timeout_ms: parseTimeout(value.timeout_ms),
-		};
+		});
 
-	if (value.mode !== undefined && !LEGACY_MODES.has(value.mode))
-		throw new Error("mode is invalid");
-	if (value.mode !== undefined && value.queue !== undefined)
-		throw new Error("use queue or legacy mode, not both");
-	const queue =
-		optionalBoolean(value.queue, "queue") ?? value.mode === "follow_up";
-	return {
+	return routed({
 		action: "send",
 		target,
 		text: cleanString(value.text, "text"),
-		queue,
 		wait: optionalBoolean(value.wait, "wait") ?? true,
 		timeout_ms: parseTimeout(value.timeout_ms),
+	});
+}
+
+function canonicalHost(value) {
+	return HOST_ALIASES.get(value.split(".")[0]);
+}
+
+export function planHostRoute(request, currentHostname = hostname()) {
+	const { host, ...localRequest } = request;
+	if (!host) return { remote: false, request: localRequest };
+	return {
+		host,
+		remote: canonicalHost(currentHostname) !== host,
+		request: localRequest,
 	};
+}
+
+async function runRemote(host, request, options = {}) {
+	if (!REMOTE_SOCKET_PATH || !REMOTE_TOOL_PATH)
+		throw new Error(
+			"remote agents routing is not configured; set AGENTS_REMOTE_SOCKET_PATH and AGENTS_REMOTE_COORDINATION_TOOL",
+		);
+	const exactTargets = options.exactTargets ? " AGENTS_EXACT_TARGETS=1" : "";
+	const includePending = options.includePending ? " AGENTS_INCLUDE_PENDING=1" : "";
+	const remoteCommand = `HERDR_SOCKET_PATH=${REMOTE_SOCKET_PATH}${exactTargets}${includePending} /usr/bin/node ${REMOTE_TOOL_PATH}`;
+	const child = spawn("ssh", [host, remoteCommand], {
+		env: process.env,
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+	let stdout = "";
+	let stderr = "";
+	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
+	child.stdout.on("data", (chunk) => {
+		stdout += chunk;
+	});
+	child.stderr.on("data", (chunk) => {
+		stderr += chunk;
+	});
+	const forward = (signal) => {
+		if (!child.killed) child.kill(signal);
+	};
+	process.once("SIGINT", forward);
+	process.once("SIGTERM", forward);
+	try {
+		child.stdin.end(JSON.stringify(request));
+		const code = await new Promise((resolveCode, reject) => {
+			child.once("error", reject);
+			child.once("close", (value) => resolveCode(value ?? 1));
+		});
+		if (code !== 0) {
+			throw new Error(
+				stderr.trim() || stdout.trim() || `remote agents coordination exited with code ${code}`,
+			);
+		}
+		try {
+			const result = JSON.parse(stdout);
+			if (!isObject(result)) throw new Error("result is not an object");
+			return result;
+		} catch (error) {
+			throw new Error(
+				`remote agents coordination returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	} finally {
+		process.off("SIGINT", forward);
+		process.off("SIGTERM", forward);
+	}
 }
 
 class HerdrClient {
@@ -168,7 +241,7 @@ class HerdrClient {
 
 	request(method, params = {}, timeoutMs = 10_000) {
 		return new Promise((resolve, reject) => {
-			const id = `herdr-agent:${crypto.randomUUID()}`;
+			const id = `agents:${crypto.randomUUID()}`;
 			let buffer = "";
 			let settled = false;
 			const socket = createConnection(this.socketPath, () =>
@@ -330,6 +403,7 @@ export function parseSessionLines(lines) {
 	let assistant_entry;
 	let user;
 	let ask;
+	let latest_role;
 	const resolved = new Set();
 	const visited = new Set();
 	while (current && !visited.has(current)) {
@@ -341,6 +415,10 @@ export function parseSessionLines(lines) {
 			ask = [...node.asks]
 				.reverse()
 				.find((candidate) => !resolved.has(candidate.tool_call_id));
+		if (!latest_role) {
+			if (node.assistant_entry) latest_role = "assistant";
+			else if (node.user) latest_role = "user";
+		}
 		assistant ??= node.assistant;
 		assistant_entry ??= node.assistant_entry;
 		user ??= node.user;
@@ -352,6 +430,7 @@ export function parseSessionLines(lines) {
 		assistant_entry,
 		user,
 		ask,
+		latest_role,
 	};
 }
 
@@ -460,7 +539,7 @@ function compactPanel(panel) {
 	};
 }
 
-async function resolvePanel(client, target) {
+async function resolvePanel(client, target, options = {}) {
 	let directError;
 	try {
 		const direct = await getAgent(client, target);
@@ -469,6 +548,10 @@ async function resolvePanel(client, target) {
 	} catch (error) {
 		directError = error;
 	}
+	if (options.exactTargets)
+		throw directError instanceof Error
+			? directError
+			: new Error(`no Pi panel matches ${JSON.stringify(target)}`);
 	const matches = await findPanels(client, {
 		action: "find",
 		query: target,
@@ -597,9 +680,13 @@ function askOutput(ask) {
 	};
 }
 
-export function herdrHelp() {
+export function coordinationHelp() {
 	return {
-		call: "await tools.herdr_agent(JSON.stringify(request))",
+		call: "await tools.agents(JSON.stringify(request))",
+		routing: {
+			host: "desktop | laptop | server? (default current host)",
+			note: "host routes Herdr agent operations over SSH; use normal SSH for shell commands",
+		},
 		actions: {
 			find: {
 				request: {
@@ -615,7 +702,6 @@ export function herdrHelp() {
 					action: "send",
 					target: "string",
 					text: "string",
-					queue: "boolean? (default false)",
 					wait: "boolean? (default true)",
 					timeout_ms: "integer? (default 300000)",
 				},
@@ -646,7 +732,7 @@ export function herdrHelp() {
 			},
 		},
 		advanced: {
-			load: 'await tools.skills("read herdr")',
+			run: "herdr --skill",
 			covers: [
 				"workspace/tab/pane lifecycle",
 				"generic command panes",
@@ -770,9 +856,7 @@ function keyFor(bindings, action, fallback) {
 	return fallback;
 }
 
-export function resolveSendDisposition({ busy, queue }) {
-	if (busy && queue)
-		return { keybinding: "app.message.followUp", fallback: "alt+enter", mode: "follow_up" };
+export function resolveSendDisposition({ busy }) {
 	return {
 		keybinding: "tui.input.submit",
 		fallback: "enter",
@@ -985,15 +1069,15 @@ async function answerAsk(client, reader, panel, request) {
 	);
 }
 
-async function execute(request) {
-	if (request.action === "help") return herdrHelp();
+async function execute(request, options = {}) {
+	if (request.action === "help") return coordinationHelp();
 	const client = new HerdrClient();
 	const reader = new SessionReader();
 	if (request.action === "find") {
 		const panels = await findPanels(client, request);
 		return { panels: panels.slice(0, 30).map(compactPanel) };
 	}
-	const panel = await resolvePanel(client, request.target);
+	const panel = await resolvePanel(client, request.target, options);
 	if (request.action === "read") {
 		if (request.source !== "latest") {
 			const snapshot = await terminalSnapshot(
@@ -1015,6 +1099,9 @@ async function execute(request) {
 			pane: panel.pane_id,
 			status: panel.agent_status,
 			...(view.assistant ? boundText(view.assistant.text) : { text: null }),
+			...(options.includePending && view.latest_role === "user"
+				? { pending: true }
+				: {}),
 			...(panel.agent_status === "blocked" && askOutput(view.ask)
 				? { ask: askOutput(view.ask) }
 				: {}),
@@ -1058,8 +1145,8 @@ async function execute(request) {
 			`${panel.pane_id} is blocked${baseline.ask ? " on ask; use action=answer" : ""}`,
 		);
 	const busy = await isBusy(client, panel);
-	const disposition = resolveSendDisposition({ busy, queue: request.queue });
-	if (!(busy && request.queue)) {
+	const disposition = resolveSendDisposition({ busy });
+	if (!busy) {
 		try {
 			const result = await client.request(
 				"agent.prompt",
@@ -1139,7 +1226,6 @@ async function execute(request) {
 		const current = await getSameAgent(client, panel);
 		const retryDisposition = resolveSendDisposition({
 			busy: await isBusy(client, current),
-			queue: request.queue,
 		});
 		const retryKey = keyFor(
 			bindings,
@@ -1183,15 +1269,29 @@ async function readStdin() {
 	return input;
 }
 
+export async function coordinate(text, options = {}) {
+	const request = parseRequest(text);
+	const route = planHostRoute(request);
+	const result =
+		request.action === "help" || !route.remote
+			? await execute(route.request, options)
+			: await runRemote(route.host, route.request, options);
+	return route.host && request.action !== "help"
+		? { host: route.host, ...result }
+		: result;
+}
+
 async function main() {
-	const result = await execute(parseRequest(await readStdin()));
-	process.stdout.write(`${JSON.stringify(result)}\n`);
+	const result = await coordinate(await readStdin());
+	process.stdout.write(
+		`${JSON.stringify(result)}\n`,
+	);
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname)
 	main().catch((error) => {
 		process.stderr.write(
-			`herdr_agent: ${error instanceof Error ? error.message : String(error)}\n`,
+			`agents coordination: ${error instanceof Error ? error.message : String(error)}\n`,
 		);
 		process.exitCode = 1;
 	});
