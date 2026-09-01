@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.0.23
+
+### Changes
+
+- [#352](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/352) [`4e2b773`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/4e2b773f8e069f4b61316bccc859faafe3451b9c) Thanks [@IgorWarzocha](https://github.com/IgorWarzocha)! - Keep installed Codex startup and prompt-cache keepalive reliable.
+
+  - Load the package changelog from shipped JavaScript so the extension starts correctly from `node_modules`.
+  - Replace the generic keepalive experiment with bounded global Luna windows and a project-only 25-minute Sol/Terra policy.
+  - Refresh prompt caches independently from cached WebSocket continuation and retention.
+  - Preserve first-party Codex behavior through renamed and proxied Codex routes, and clean isolated keepalive sockets on transport reset.
+
+## 3.0.22
+
+### Changes
+
+- [#349](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/349) [`ef7656c`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/ef7656c2aab3d2aa1cff581bae26dc9b102aece7) Thanks [@IgorWarzocha](https://github.com/IgorWarzocha)! - Restore live Pi speech by streaming visible progress, speaking enabled completed reasoning summaries, and integrating successive updates without replacing active speech.
+
+## 3.0.21
+
+### Changes
+
+- [#346](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/346) [`bf42276`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/bf42276a2fdc10e41ce0d3f48855607ff89e50c8) Thanks [@IgorWarzocha](https://github.com/IgorWarzocha)! - Speak Pi progress and final results as soon as they reach realtime voice instead of waiting for turn completion.
+
+## 3.0.20
+
+### Changes
+
+- [#342](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/342) [`35182d9`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/35182d9a002daded7610cca64c47b25bed3267df) Thanks [@howaclawa](https://github.com/howaclawa)! - Keep realtime voice responsive across typed Pi turns, active speech, and compaction. Speak one meaningful progress update, serialize final results, and queue delegations until native compaction and prewarm finish.
+
+- [#342](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/342) [`35182d9`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/35182d9a002daded7610cca64c47b25bed3267df) Thanks [@howaclawa](https://github.com/howaclawa)! - Make Code and Notebook Mode failures actionable and easier to recover.
+
+  - Surface Deno syntax diagnostics instead of generic execution failures and isolate bridge networking from user bindings.
+  - Encode action-specific notebook control inputs and return targeted recovery for persistent binding redeclarations.
+  - Clarify safe shell interpolation, terminal input, and Deno tool composition in model-facing guidance.
+  - Keep concurrent Code and Notebook sessions from taking optional Git index locks during read-only commands.
+  - Retry idempotent browser reads after delayed Chrome responses without blaming debugger approval, while warning against blind retries of timed-out page mutations.
+  - Return unambiguous tab references, prevent stale element aliases, support common ARIA menu controls, bound reference screenshots, validate browser references and pagination, serialize shared daemon state, release remote object handles, revalidate the requested control immediately before a native click, keep linked CLI entries executable, and expose the complete reference workflow in launcher help.
+  - Focus and verify the identity of referenced editable fields without first dispatching a potentially consequential click.
+  - Keep the Agents custom tool self-contained and remove the superseded Herdr Agent example.
+  - Let the Skills custom tool load one or more routed references directly by name.
+  - Preserve explicit `models.json` endpoints when installing the custom Codex transport and Daybreak model catalog.
+  - Keep package changelogs disabled with the Codex extension in Pi config.
+  - Keep LAN voice certificate startup compatible with asynchronous certificate generation.
+  - Release queued realtime delegations when native compaction fails, is aborted, or any post-compaction step errors.
+  - Defer queued Pi follow-up context until that follow-up begins its realtime handoff.
+
+## 3.0.19
+
+### Changes
+
+- [#339](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/339) [`ee0220c`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/ee0220cdc44cd732dff9caf0c913e098ed14404f) Thanks [@IgorWarzocha](https://github.com/IgorWarzocha)! - Keep long Codex sessions cached through idle periods by generating and discarding an isolated completion over the complete settled context every 25 minutes. Resume transport from the complete current branch instead of a system-only baseline, and add named diagnostics with socket, continuation, and authoritative refresh usage.
+
+- [#339](https://github.com/IgorWarzocha/howaboua-pi-stuff/pull/339) [`ee0220c`](https://github.com/IgorWarzocha/howaboua-pi-stuff/commit/ee0220cdc44cd732dff9caf0c913e098ed14404f) Thanks [@IgorWarzocha](https://github.com/IgorWarzocha)! - Preserve native compaction cache continuity after switching Codex models.
+
 ## 3.0.18
 
 ### Changes
