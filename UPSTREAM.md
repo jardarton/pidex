@@ -4,8 +4,8 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `bec3eaa8df87b7c0c04295d6a6db4ee1caa9939c` (2026-08-26) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.23` |
+| Upstream revision | `d577673e4c00892c133e7231eb5423982469531c` (2026-09-03) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.25` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
@@ -74,7 +74,7 @@ git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   
 git fetch upstream
 
 # see what changed in the package since the last refresh, ignoring binary churn
-git diff 7558b3d4c90c4297676403c6a71f384817802513..upstream/main \
+git diff fa39a62..upstream/main \
   -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 
