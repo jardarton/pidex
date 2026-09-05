@@ -4,8 +4,8 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `d577673e4c00892c133e7231eb5423982469531c` (2026-09-03) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.25` |
+| Upstream revision | `7021ae48e8efe36a3becc5830d529696ff798e5e` (2026-09-05) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.29` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
