@@ -1,4 +1,4 @@
-import { buildSessionContext, convertToLlm, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Context } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { dirname } from "node:path";
@@ -27,8 +27,11 @@ import { createLazyCodexDiagnostics } from "../diagnostics/lazy.ts";
 import type { CodexDiagnosticsSink } from "../providers/openai-codex/types.ts";
 import { CodexDeveloperMessageBridge } from "../adapter/developer-messages.ts";
 import { CodexContextWindowManager } from "../context-management/window-manager.ts";
+import { CodexContextWindowKickoff } from "../context-management/window-kickoff.ts";
 import { CodexContextTreeCoordinator } from "../context-management/tree-coordinator.ts";
+import { projectTreeCheckpointBranch, projectTreeCheckpointMessages } from "../context-management/tree-checkpoint.ts";
 import { hasPendingCodexReasoningUpdate, supportsCodexReasoningUpdates } from "../adapter/reasoning-updates.ts";
+import { projectCodexReasoningHistory } from "../adapter/reasoning-history.ts";
 import { createAutoReasoning } from "../adapter/auto-reasoning.ts";
 
 export type CodexContext = ExtensionContext;
@@ -81,7 +84,10 @@ export function createCodexExtensionRuntime(pi: ExtensionAPI): CodexExtensionRun
 		console.warn(`[pi-codex-conversion] ${warning}`);
 	}
 	const initialConfig = readEffectiveCodexConversionConfig({ cwd: process.cwd(), projectTrusted: false });
-	const contextWindows = new CodexContextWindowManager();
+	const voice = new CodexVoiceController(pi);
+	const contextWindows = new CodexContextWindowManager(undefined, (ctx, options) =>
+		voice.refreshRealtimeContext(ctx, state.config, options));
+	const contextKickoff = new CodexContextWindowKickoff(contextWindows);
 	const state: AdapterState = {
 		enabled: false,
 		cwd: process.cwd(),
@@ -91,7 +97,8 @@ export function createCodexExtensionRuntime(pi: ExtensionAPI): CodexExtensionRun
 		codexTurnState: createCodexTurnState(),
 		developerMessages: new CodexDeveloperMessageBridge(),
 		contextWindows,
-		contextTree: new CodexContextTreeCoordinator(contextWindows),
+		contextKickoff,
+		contextTree: new CodexContextTreeCoordinator(contextWindows, contextKickoff),
 	};
 	const tracker = createExecCommandTracker();
 	const sessions = createExecSessionManager({
@@ -106,7 +113,6 @@ export function createCodexExtensionRuntime(pi: ExtensionAPI): CodexExtensionRun
 	let activePrewarmKind: "ordinary" | "compaction" | "keepalive" | undefined;
 	let cacheKeepaliveTimer: ReturnType<typeof setTimeout> | undefined;
 	let cacheKeepaliveEpoch = 0;
-	const voice = new CodexVoiceController(pi);
 	const diagnostics = createLazyCodexDiagnostics();
 	let cacheEnvironmentWarningsReported = false;
 	const buildPrewarmPlan = (
@@ -264,13 +270,15 @@ export function createCodexExtensionRuntime(pi: ExtensionAPI): CodexExtensionRun
 	const projectContextMessages = (ctx: CodexContext, messages?: readonly AgentMessage[]) => {
 		const plan = resolveCodexRuntimePlanForState(ctx, state);
 		const branch = ctx.sessionManager.getBranch();
+		const allEntries = plan.contextManagementMode === "tree" ? ctx.sessionManager.getEntries() : branch;
+		const checkpointBranch = plan.contextManagementMode === "tree" && plan.contextManagementHybrid
+			? projectTreeCheckpointBranch(branch, allEntries) : branch;
 		const projected = state.contextWindows.project(
-			messages ?? buildSessionContext(branch).messages,
+			projectCodexReasoningHistory(checkpointBranch, projectTreeCheckpointMessages(branch, checkpointBranch, messages)),
 			plan.contextManagementMode,
 			branch,
-			plan.contextManagementMode === "tree"
-				? ctx.sessionManager.getEntries()
-				: branch,
+			allEntries,
+			plan.contextManagementHybrid,
 		);
 		return projected.filter((message) => !isProviderContextExcludedMessage(message));
 	};
