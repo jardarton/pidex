@@ -39,20 +39,27 @@ export function createContextWindowTools(
 			executionMode: "sequential",
 			async execute(_id, _params, signal, _update, ctx) {
 				const plan = assertContextManagementActive(ctx, state);
-				const started = plan.contextManagementMode === "tree"
+				const started = plan.contextManagementHybrid
+					? state.contextWindows.scheduleHybridCompaction()
+					: plan.contextManagementMode === "tree"
 					? state.contextTree.schedule(ctx)
-					: await state.contextWindows.startNewWindow(pi, ctx, {
+					: await state.contextKickoff.startWindow(pi, ctx, {
 						triggerTurn: true,
 						signal,
 						mode: plan.contextManagementMode,
 						trimPreviousWindow: true,
 					});
+				// Pi's terminate flag only stops a batch when every result terminates.
+				if (started && !plan.contextManagementHybrid) ctx.abort();
 				return {
+					...(started ? { terminate: true } : {}),
 					content: [
 						{
 							type: "text",
 							text: started
-								? "A new context window will start without summarizing conversation history."
+								? plan.contextManagementHybrid
+									? "A new context window will continue from a compaction checkpoint."
+									: "A new context window will start without summarizing conversation history."
 								: "A new context window is already scheduled.",
 						},
 					],
@@ -94,6 +101,7 @@ export function registerContextManagementTools(
 	const [history, notes] = createHistoryNotesTools(
 		pi,
 		(ctx) => resolveCodexRuntimePlanForState(ctx, state).contextManagementMode,
+		(action, path, ctx) => state.contextTree.handoff.finishNoteWrite(action, path, ctx),
 	);
 	pi.registerTool(newContext);
 	pi.registerTool(getContextRemaining);

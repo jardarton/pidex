@@ -6,13 +6,17 @@ Status: implemented contract. Keep this file synchronized with the runtime.
 
 Add a provider-independent **Tree** context-management mode that uses Pi's append-only session tree to remove completed windows from the active branch. Pi-generated branch summaries remain in the session and UI but are filtered from model context. The existing Codex-shaped history and notes tools retrieve them and their archived raw entries on demand.
 
-Tree mode preserves the same model semantics as the no-summary window flow:
+With Hybrid compaction off, Tree preserves the no-summary window flow:
 
 - the next model window does not automatically receive a conversation summary
 - the model receives the current window marker, previous window ID, recent note paths and bounded history IDs
 - shell, workspace and Notebook runtime state survive rollover
 - prior summaries and raw work are available only through history and notes
 - Pi JSONL remains append-only and is never rewritten
+
+With Hybrid on, rollover first runs Responses V2 where supported or Pi compaction elsewhere. The archive manifest references the original `CompactionEntry` by `compactionEntryId`. `tree-checkpoint.ts` reconstructs its source path, retained entries and post-compaction tail for model context and native replay; it never duplicates the stored checkpoint. The reference becomes model-authoritative only after the successor window marker exists.
+
+With Hybrid, manual `/compact` archives inside `session_compact` without starting a turn. Input intercepted during that navigation is restored to the editor because Pi's manual compaction controller is still active. Tool-requested compaction archives from `ctx.compact().onComplete`, after Pi clears its manual compaction state, then starts the next window. Overflow records the checkpoint and archives at `agent_settled`, after the automatic retry tail. Without Hybrid, `/compact` requests a notes checkpoint and `new_context` through the ordinary notes-only lifecycle below.
 
 ```mermaid
 flowchart LR
@@ -22,8 +26,8 @@ flowchart LR
     D --> E[Old work becomes side branch]
     D --> F[Pi appends branch summary]
     F --> G[Append hidden archive manifest]
-    G --> H[Append purple window marker]
-    H --> I[Fresh model turn]
+    G --> H[Append purple window marker without triggering]
+    H --> I[Settled user kickoff starts fresh model turn]
     F -. indexed by .-> J[history tools]
     E -. exact entries .-> J
     J -. on demand .-> I
@@ -148,7 +152,7 @@ Do not copy raw conversation entries into the snapshot. Bound file sizes using t
 
 ### Window marker
 
-After the archive manifest and note snapshot, append the existing purple context-window custom message. It is the last model-visible session entry and starts the continuation turn.
+After the archive manifest and note snapshot, append the existing purple context-window custom message without triggering a turn. Once Pi is settled and transport state has been reset, a successor user message starts the continuation through the complete input and `before_agent_start` chain.
 
 The marker retains:
 
@@ -241,7 +245,7 @@ Maintain one pending rollover per session:
 1. verifies command-context capture, a current boundary entry and no existing pending rollover
 2. records the current session ID, leaf and window identity
 3. calls `ctx.abort()`
-4. returns a bounded “rollover scheduled” result
+4. returns a terminating “rollover scheduled” result
 
 It must not append the next boundary while the old turn is streaming.
 
@@ -269,7 +273,7 @@ Our current generic `session_tree` handler resets Notebook tree epochs and shuts
 - ordinary user navigation keeps the existing Notebook reset behavior
 - internal navigation must not auto-create a boundary before the manifest and note snapshot exist
 
-Pi emits `session_tree` before command-context navigation returns. Its interactive wrapper may then flush input queued during summarization. The final append and turn-trigger ordering must be proven in the lifecycle prototype. The safe design may need to append manifest, note snapshot and boundary from the synchronous `session_tree` handler, then trigger continuation only after every required entry is present.
+Pi emits `session_tree` before command-context navigation returns. Its interactive wrapper may then flush input queued during summarization. The coordinator appends the manifest, note snapshot and non-triggering boundary before admitting one successor user kickoff. Manual compaction does not admit that kickoff inside `session_compact`; intercepted input is restored to the editor instead.
 
 Only the last emitted model-visible entry may trigger a turn.
 
@@ -299,7 +303,7 @@ On resume with Tree mode enabled:
 
 With Tree mode disabled, tagged summaries remain ordinary persisted Pi summaries but our provider filter and retrieval tools disappear. Because the summaries were intentionally hidden from the managed model, sessions are not guaranteed to continue correctly without the feature.
 
-The existing “run `/compact` before disabling” escape path needs Tree-specific treatment. Manual compaction while Tree mode is active must materialize a readable cumulative summary from archived summaries plus the current window. The fixed no-summary compaction marker is insufficient for leaving Tree mode.
+In notes-only mode, `/compact` cancels compaction and asks the agent to save the current state in notes unless it has just done so, then call `new_context` immediately. The request starts after Pi clears its manual compaction state. It does not generate a portable summary or make disabling Tree safe.
 
 User navigation into an archived branch is ordinary tree navigation, not an internal rollover. It resets Notebook state as it does today, rebuilds indexes for the selected branch and initializes a fresh context boundary if required.
 
@@ -337,7 +341,8 @@ Never silently fall back from Remote to Local or Tree.
 Likely ownership:
 
 - `adapter/activation/config.ts` and settings UI: expose Tree and Remote
-- `context-management/window-manager.ts`: boundary entry IDs, pending identities and Tree projection
+- `context-management/window-manager.ts`: window identity, projection and compaction
+- `context-management/window-kickoff.ts`: deferred window starts and settled successor user input
 - new `context-management/tree-coordinator.ts`: command capture, abort/settled state machine and internal-navigation guard
 - new `context-management/tree-archive.ts`: manifest validation, bounded traversal and index rebuild
 - `context-management/local-history.ts`: active and archived window sources
@@ -374,15 +379,15 @@ Then protect the independent contracts:
 - repeated rollovers
 - mode routing for Off, Local, Tree and Remote
 - Remote failure without fallback
-- manual compaction exit from Tree mode
+- manual notes checkpoint versus Hybrid compaction routing
 
 Use focused checks while iterating and the package umbrella gate once after review. Do not turn the test suite back into a lifecycle tour.
 
 ## Verified choices
 
 1. The tool aborts only after recording the pending rollover. Pi persists its tool result before emitting `agent_settled`.
-2. Navigation runs directly in the awaited `agent_settled` handler; the final boundary triggers only after the summary, manifest and note snapshot exist.
-3. Input submitted during navigation is intercepted and replayed as follow-up input after the new boundary.
+2. Navigation runs directly in the awaited `agent_settled` handler; its final boundary never triggers a custom-message turn. A settled successor user message runs every `before_agent_start` handler.
+3. Input submitted during navigation is intercepted and merged into that one successor kickoff. Manual compaction restores intercepted input to the editor instead of submitting while Pi's compaction controller is active.
 4. Pi's default branch-summary instructions are sufficient; Tree adds no standing prompt or Tree-specific model tool.
 5. Remote mirrors the native namespace schemas, encrypted sensitive arguments and encrypted output contract. A live enabled account remains the final backend acceptance check.
 
