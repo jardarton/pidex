@@ -16,6 +16,7 @@ import {
 import { CodexContextWindowManager } from "../src/context-management/window-manager.ts";
 import { CodexContextWindowKickoff } from "../src/context-management/window-kickoff.ts";
 import { CodexContextTreeCoordinator } from "../src/context-management/tree-coordinator.ts";
+import { RealtimeDelegationHandoff } from "../src/voice/conversation/handoff.ts";
 import { buildRequestBody } from "../src/providers/openai-codex-custom-provider.ts";
 import { createCodexTurnState } from "../src/providers/openai-codex/turn-state.ts";
 import { codexModel } from "./openai-codex-test-support.ts";
@@ -161,7 +162,12 @@ test("context windows preserve rollover and native request semantics", async (t)
 		assert.equal(manager.prepareCompaction({ reason: "manual" } as never, mode, true), undefined);
 		const checkpointManager = new CodexContextWindowManager();
 		const sent: Array<{ message: Record<string, unknown>; options: unknown }> = [];
-		const pi = { sendMessage: (message: Record<string, unknown>, options: unknown) => sent.push({ message, options }) } as never;
+		const kickoffs: unknown[] = [];
+		const pi = {
+			events: { emit() {} },
+			sendMessage: (message: Record<string, unknown>, options: unknown) => sent.push({ message, options }),
+			sendUserMessage: (content: string, options: unknown) => kickoffs.push({ content, options, messagesBeforeKickoff: sent.length }),
+		} as never;
 		checkpointManager.ensureInitialized(pi, ctx, true);
 		const identity = checkpointManager.currentIdentity();
 		const controller = new AbortController();
@@ -169,20 +175,53 @@ test("context windows preserve rollover and native request semantics", async (t)
 		const cancelled = { reason: "manual", aborted: true } as never;
 		assert.deepEqual(checkpointManager.prepareCompaction(manual, mode), { cancel: true });
 		assert.equal(sent.length, 1, "checkpoint waits until Pi leaves manual compaction");
-		checkpointManager.finishManualCheckpointRequest(pi, cancelled, true);
+		checkpointManager.finishManualCheckpointRequest(pi, ctx, cancelled, true);
 		assert.equal(sent.length, 2);
-		assert.deepEqual(sent[1]!.options, { deliverAs: "steer", triggerTurn: true });
+		assert.deepEqual(sent[1]!.options, { triggerTurn: false });
+		assert.deepEqual(kickoffs, [{ content: "Continue.", options: { deliverAs: "steer" }, messagesBeforeKickoff: 2 }]);
 		assert.match(String(sent[1]!.message["content"]), /Preserve the deployment decision/);
 		assert.deepEqual(checkpointManager.currentIdentity(), identity, "manual request does not cut the window");
-		checkpointManager.finishManualCheckpointRequest(pi, cancelled, true);
+		checkpointManager.finishManualCheckpointRequest(pi, ctx, cancelled, true);
 		assert.equal(sent.length, 2, "cancellation completion consumes the request once");
 		checkpointManager.prepareCompaction(manual, mode);
-		checkpointManager.finishManualCheckpointRequest(pi, cancelled, false);
+		checkpointManager.finishManualCheckpointRequest(pi, ctx, cancelled, false);
 		assert.equal(sent.length, 2, "disabled mode cannot start a checkpoint turn");
 		checkpointManager.prepareCompaction(manual, mode);
 		controller.abort();
-		checkpointManager.finishManualCheckpointRequest(pi, cancelled, true);
+		checkpointManager.finishManualCheckpointRequest(pi, ctx, cancelled, true);
 		assert.equal(sent.length, 2, "user cancellation cannot start a checkpoint turn");
+		assert.equal(kickoffs.length, 1);
+		checkpointManager.prepareCompaction({ reason: "manual", signal: new AbortController().signal } as never, mode);
+		checkpointManager.finishManualCheckpointRequest(
+			pi,
+			{ isIdle: () => false, ui: { notify() {} } } as never,
+			cancelled,
+			true,
+		);
+		assert.deepEqual(sent[2]!.options, { deliverAs: "steer", triggerTurn: true });
+		assert.equal(kickoffs.length, 1, "active runs receive steering without another kickoff");
+
+		const completedCtx = createContext() as ExtensionContext;
+		completedCtx.sessionManager.getBranch = () => [{
+			type: "message", message: { role: "assistant", stopReason: "stop" },
+		}] as never;
+		const compactWithSavedNotes = (customInstructions?: string) => {
+			checkpointManager.prepareCompaction({ reason: "manual", customInstructions, signal: new AbortController().signal } as never, mode);
+			return checkpointManager.finishManualCheckpointRequest(pi, completedCtx, cancelled, true);
+		};
+		checkpointManager.beginTurn(completedCtx);
+		const oldWrite = checkpointManager.trackNoteWrite(completedCtx);
+		oldWrite();
+		checkpointManager.settleTurn(completedCtx);
+		assert.equal(compactWithSavedNotes(), true, "completed note save needs no checkpoint turn");
+		assert.equal(sent.length, 3);
+		assert.equal(kickoffs.length, 1);
+		assert.equal(compactWithSavedNotes("Preserve the decision"), false, "explicit instructions still need a model turn");
+		checkpointManager.clearTurnNotes();
+		checkpointManager.beginTurn(completedCtx);
+		oldWrite();
+		checkpointManager.settleTurn(completedCtx);
+		assert.equal(compactWithSavedNotes(), false, "a late write cannot credit the next turn");
 	}
 	const hybridMessages = [
 		{ role: "user", content: "retained checkpoint tail", timestamp: 1 },
@@ -299,6 +338,14 @@ test("context windows preserve rollover and native request semantics", async (t)
 		(["local", "tree", "remote"] as const).flatMap((mode) => [false, true].map(async (hybridCompaction) => {
 			const sent: Array<Record<string, unknown>> = [];
 			const kickoffs: string[] = [];
+			const spoken: string[] = [];
+			const handoff = new RealtimeDelegationHandoff({
+				isActive: () => true,
+				onContext: (_target, channel, content) => {
+					if (channel === "speakable") spoken.push(content);
+				},
+				onSettled() {},
+			});
 			let idle = false;
 			const continuationContext = { ...(ctx as ExtensionContext), isIdle: () => idle } as ExtensionContext;
 			let boundaryRefreshes = 0;
@@ -309,13 +356,16 @@ test("context windows preserve rollover and native request semantics", async (t)
 					boundaryRefreshes++;
 				},
 			);
-			const kickoff = new CodexContextWindowKickoff(windows);
+			const kickoff = new CodexContextWindowKickoff(windows, (input) => handoff.piInput(input));
 			const pi = {
 				sendMessage(message: Record<string, unknown>, options: unknown) {
 					assert.deepEqual(options, { triggerTurn: false }, "window markers never bypass the prompt lifecycle");
 					sent.push(message);
 				},
-				sendUserMessage(text: string) { kickoffs.push(text); },
+				sendUserMessage(text: string) {
+					kickoffs.push(text);
+					handoff.result("Resumed reply");
+				},
 			} as never;
 			windows.ensureInitialized(pi, ctx, true);
 			assert.equal(boundaryRefreshes, 0, "initialization is not a rollover");
@@ -364,6 +414,7 @@ test("context windows preserve rollover and native request semantics", async (t)
 			assert.equal(kickoff.continue(pi, continuationContext), true);
 			assert.equal(kickoff.continue(pi, continuationContext), false, "one kickoff per window");
 			assert.equal(kickoffs.length, 1);
+			assert.deepEqual(spoken, ["Resumed reply"], "successor output has a voice route before the run starts");
 			assert.equal(boundaryRefreshes, 1, "Hybrid compaction and its successor share one refresh");
 			const persisted = sent.map((message) => ({ ...message, role: "custom", timestamp: 1 })) as never;
 			const bridge = new CodexDeveloperMessageBridge();

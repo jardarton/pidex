@@ -1,7 +1,6 @@
 import { getAgentDir, type AgentToolResult, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CodexExtensionRuntime } from "../extension/runtime.ts";
 import { getCodeModeExtensionTools } from "../code-mode-extension-tools.ts";
-import { formatRunningExecSessionGuidance } from "../tools/code-mode/tool-result.ts";
 import {
 	type CodeModeRegistration,
 	registerCodeModeTools,
@@ -48,6 +47,7 @@ export async function registerCodexCodeMode(
 		}),
 		providesRenderers: true,
 		richRendering: () => runtime.state.config.ui.codeModeDetails,
+		minimalOutput: () => runtime.state.config.ui.compactTools === "minimal",
 	});
 	return {
 		prepare: (ctx) => programmaticRuntime.prepare(ctx),
@@ -72,18 +72,20 @@ function createNestedTools(
 		promptSnippet: false,
 		customRendering: runtime.state.config.ui.toolRenaming,
 		showOutputWhenCollapsed: true,
-		compactTools: runtime.state.config.ui.compactTools,
 	};
 	const execOptions = {
 		...options,
 		waitForNonInteractiveExit: true,
 	};
+	const textOutput = runtime.state.config.notebook.plainCommandOutput
+		? { textOutput: "plain-command" as const }
+		: {};
 	const tools: ProgrammaticCodeModeToolDefinition[] = [
 		toNestedTool(
 			createApplyPatchTool({
 				customRustBinariesDir: runtime.state.config.tools.customRustBinariesDir,
 				promptSnippet: false,
-				showDiffWhenCollapsed: !runtime.state.config.ui.compactTools,
+				showDiffWhenCollapsed: runtime.state.config.ui.compactTools === "off",
 			}),
 			"await tools.apply_patch(patch) // *** Begin Patch / *** End Patch; actions: *** Add File: path | *** Update File: path | *** Delete File: path; *** Move to: path must immediately follow its Update File header and still needs a nonempty @@ hunk (use one unchanged context line for a pure move); Update hunks MUST follow file order; copy exact context; @@ text is context, not a line range; reread a file before patching if it changed since your last read",
 			{},
@@ -127,6 +129,7 @@ function createNestedTools(
 			},
 			{
 				yieldTimeMs: LONG_RUNNING_TOOL_OUTER_YIELD_MS,
+				...textOutput,
 				resultValue(result) {
 					const details = result.details;
 					if (result.content.some((item) => item.type === "image")) {
@@ -135,11 +138,6 @@ function createNestedTools(
 							: result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || undefined;
 						return codeModeImageResult(result, outputHint);
 					}
-					if (isRunningExecResult(details))
-						return {
-							...details,
-							continuation: formatRunningExecSessionGuidance(details.session_id),
-						};
 					if (isExecResult(details)) return details;
 					return result.content
 						.filter((item): item is { type: "text"; text: string } => item.type === "text")
@@ -152,7 +150,7 @@ function createNestedTools(
 			createWriteStdinTool(runtime.sessions, options),
 			"await tools.write_stdin({ session_id: number, chars?: string, yield_time_ms?: number, max_output_tokens?: number }) // non-empty chars only when the original exec_command used tty=true",
 			{},
-			{ yieldTimeMs: LONG_RUNNING_TOOL_OUTER_YIELD_MS },
+			{ yieldTimeMs: LONG_RUNNING_TOOL_OUTER_YIELD_MS, ...textOutput },
 		),
 	];
 	if (!ctx || supportsViewImageInputs(ctx.model) || runtime.state.config.tools.viewImageFallback) {
@@ -189,10 +187,6 @@ function createNestedTools(
 		tools.push(toNestedTool(runtime.autoReasoning.tool, `await tools.change_reasoning({ level: "low" | "medium" | "high" }) // ${runtime.autoReasoning.tool.description}`));
 	}
 	return tools;
-}
-
-function isRunningExecResult(details: AgentToolResult<unknown>["details"]): details is Record<string, unknown> & { session_id: number } {
-	return Boolean(details && typeof details === "object" && "session_id" in details && typeof details.session_id === "number");
 }
 
 function isExecResult(details: AgentToolResult<unknown>["details"]): details is Record<string, unknown> & { output: string } {
