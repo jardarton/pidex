@@ -1,5 +1,57 @@
 # Changelog
 
+## 3.0.34
+
+- Fixed expanded exec_command rows to show the complete command.
+
+- Fixed context continuity, voice replies, and patch preservation.
+
+  - V2 compaction preserves the preceding request's reasoning configuration, then starts a fresh baseline without stale overrides. Astra's temporary effort survives continued work across context windows.
+  - Worker updates now accept up to 8 KiB without truncation announcements or offers to read the rest.
+  - Reasoning-summary forwarding now recognizes GPT-6 models.
+  - Replies resume in voice after a context-window rollover, and carried transcripts no longer falsely report that the user ended the call.
+  - Reconnecting voice no longer reposts a cached Voice Context summary.
+  - Added an opt-in plain command output toggle for Code and Notebook modes under `/codex Tools`, keeping command metadata while printing output without JSON escaping.
+  - Notebook cell results report heap and RSS figures only under memory pressure; routine figures remain available through notebook status.
+  - Code and Notebook modes show running-command continuation instructions once per response, preserving the distinction between shell sessions and exec cells.
+  - Notebook syntax errors now point to the original cell source, with generated-code diagnostics labeled separately.
+  - `apply_patch` now preserves existing line endings, unchanged context text, and trailing blank lines, and supports same-drive relative Windows paths.
+  - `apply_patch` rejects repeated source-file sections before writing; multiple hunks in one update remain supported.
+
+## 3.0.33
+
+- Removed redundant tool guidance from Ask, Shepherdr, Skills and Browser. Code and Notebook Mode now show one callable contract per tool, with detailed Browser and agent rules in help.
+
+## 3.0.32
+
+- Fix Notebook's first-run Deno installation in standalone Pi by loading the archive extractor through the extension's static module graph.
+
+- Reduced installation dependencies without removing Notebook or shell-summary features.
+
+  - Removed the general ZIP library and Bash grammar package's native install hook.
+  - Removed the tokenizer dependency and unused encodings while preserving compaction token counts.
+  - Updated OpenAI, Undici, and the shell parser runtime, including transport security fixes.
+
+- Deliver peer messages directly to Pi without submitting unsent human drafts.
+
+  - Preserve slash-command arguments and use the target session's skill and prompt-template expansion.
+  - Return submission-only acknowledgements for registered extension commands instead of waiting for an assistant reply.
+
+  Requires Pi 0.84.4 or newer. Update and reload Shepherdr on both controllers and workers, and Pi Codex Conversion where installed.
+
+- Fixed idle agent reports and manual checkpoint requests to preserve prompt preparation, coalesce concurrent continuations, and process reports arriving during turn settlement.
+
+  - Manual Compact reuses notes saved in the last completed turn for Local, Tree, and Remote notes-only windows, avoiding a redundant checkpoint turn. Explicit compaction instructions still request a checkpoint.
+  - Compact tool output now offers Off, On, and Minimal. Minimal keeps nested tool results and an expand hint while hiding the trailing Code / Notebook text preview until expanded. Existing Off and On settings keep their behavior.
+  - Shepherdr help makes local routing explicit: agent calls default to the host running Pi, while unfiltered discovery searches all machines. Remote calls use profile IDs, not machine labels or hostnames.
+  - Fixed Shepherdr startup after a Herdr executable replacement leaves a stale ` (deleted)` path. Recovery silently uses the replacement at the same location. Command failures remain visible and no longer imply that Herdr is outdated.
+
+- Streamed realtime replies now return their final text to the requesting delegation instead of leaving the entire answer in general session context.
+
+  - Context-window rollover now requests a brief spoken acknowledgement before voice-context refresh, including notes-only mode.
+  - Voice context refresh now preserves the summary and queues arriving spoken requests across call replacement instead of discarding them. Accepted speech finishes on the current call before replacement.
+  - Session diagnostics retain voice call, transcript and delegation identities with text hashes to distinguish event replay from fresh recognition.
+
 ## 3.0.31
 
 - Restore full extension prompt preparation when continuing into a new context window or starting review triage.

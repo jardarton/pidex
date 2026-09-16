@@ -4,8 +4,8 @@ import type {
 	ExtensionContext,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { StringEnum as piStringEnum } from "@earendil-works/pi-ai";
+import { Type, type TUnsafe } from "typebox";
 import type { ContextManagementMode } from "../adapter/activation/config.ts";
 import { historyNotesRenderers } from "./rendering.ts";
 import {
@@ -103,6 +103,9 @@ const NOTES_ACTION_FIELDS = {
 	write_file: ["path", "text"],
 } satisfies Record<NotesAction, readonly string[]>;
 
+// Name the schema through our TypeBox version for portable declarations.
+const StringEnum: <T extends readonly string[]>(values: T) => TUnsafe<T[number]> = piStringEnum;
+
 const HISTORY_PARAMETERS = Type.Object(
 	{
 		action: StringEnum(HISTORY_ACTIONS),
@@ -167,7 +170,7 @@ export function createHistoryNotesTools(
 	pi?: Pick<ExtensionAPI, "appendEntry">,
 	resolveMode: (ctx: ExtensionContext) => ContextManagementMode = () =>
 		"local",
-	finishNoteWrite?: (action: NotesAction, path: unknown, ctx: ExtensionContext) => boolean,
+	prepareNoteWrite?: (action: NotesAction, path: unknown, ctx: ExtensionContext) => () => boolean,
 ): [
 	ToolDefinition<typeof HISTORY_PARAMETERS, CodexHistoryNotesDetails>,
 	ToolDefinition<typeof NOTES_PARAMETERS, CodexHistoryNotesDetails>,
@@ -204,6 +207,9 @@ export function createHistoryNotesTools(
 			async execute(_id, params, signal, _update, ctx) {
 				const action = notesAction(params.action);
 				validateNotesArguments(action, params);
+				const finishNoteWrite = action === "write_file" || action === "append_to_file"
+					? prepareNoteWrite?.(action, params.path, ctx)
+					: undefined;
 				const result = await callHistoryNotesTool(
 					"notes",
 					action,
@@ -214,7 +220,7 @@ export function createHistoryNotesTools(
 					resolveMode(ctx),
 					pi,
 				);
-				return finishNoteWrite?.(action, params.path, ctx)
+				return finishNoteWrite?.()
 					? { ...result, terminate: true }
 					: result;
 			},

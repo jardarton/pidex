@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { StringEnum as piStringEnum } from "@earendil-works/pi-ai";
+import { Type, type TUnsafe } from "typebox";
 import { getExperimentalToolSampling } from "../tool-sampling.ts";
 import { canExecuteNotebookControlInsideExec } from "../notebook-mode/control-contract.ts";
 import type { SharedCodeModeRuntime } from "./shared-runtime.ts";
@@ -11,6 +11,9 @@ import type {
 	ProgrammaticCodeModeToolDefinition,
 	ToolExecutionContext,
 } from "./types.ts";
+
+// Name the schema through our TypeBox version for portable declarations.
+const StringEnum: <T extends readonly string[]>(values: T) => TUnsafe<T[number]> = piStringEnum;
 
 export const NOTEBOOK_PARAMETERS = Type.Union([
 	Type.Object({

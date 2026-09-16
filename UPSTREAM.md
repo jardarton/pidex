@@ -4,8 +4,8 @@
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
 | Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `94eb6c0745e2f516bf19603f912f7b6478b43355` (2026-09-08) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.31` |
+| Upstream revision | `4593f066d447925eae8e3106435f117236690f9e` (2026-09-14) |
+| Package version | `@howaboua/pi-codex-conversion@3.0.34` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
@@ -37,6 +37,8 @@ The table records the revision used for the most recent package refresh.
   point at upstream. Change them before you publish this fork to npm.
 - The browser CDP entry-point test covers only this package's entry point. The second entry
   point belongs to the omitted `pi-skill-chrome-cdp` package.
+- History/notes and notebook schemas explicitly name the local TypeBox enum type so
+  declaration builds work alongside Pi's older TypeBox dependency (see `PATCH.md`).
 - `src/voice/lan/ntfy.ts` and its integration in `src/voice/lan/controller.ts` notify an
   optional ntfy topic when the LAN voice server starts. The behavior is covered by
   `tests/voice-lan-ntfy.test.ts`.
@@ -74,7 +76,7 @@ git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   
 git fetch upstream
 
 # see what changed in the package since the last refresh, ignoring binary churn
-git diff 94eb6c0745e2f516bf19603f912f7b6478b43355..upstream/main \
+git diff 4593f066d447925eae8e3106435f117236690f9e..upstream/main \
   -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 

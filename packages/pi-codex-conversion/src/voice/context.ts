@@ -35,7 +35,7 @@ export interface RealtimeInitialMessageItem {
 export async function buildRealtimeInitialItems(args: {
 	ctx: ExtensionContext;
 	config: CodexConversionConfig;
-	onSummary?: ((summary: string) => void) | undefined;
+	onSummaryGenerated?: ((summary: string) => void) | undefined;
 	onSummaryStatus?: ((active: boolean) => void) | undefined;
 	signal?: AbortSignal | undefined;
 	sourceLeafId?: string | undefined;
@@ -64,13 +64,13 @@ export async function buildRealtimeInitialItems(args: {
 						while (summaryCache.size > SUMMARY_CACHE_LIMIT)
 							summaryCache.delete(summaryCache.keys().next().value!);
 					}
+					args.onSummaryGenerated?.(text);
 				}
 			} finally {
 				args.onSummaryStatus?.(false);
 			}
 		}
 		if (text) {
-			args.onSummary?.(text);
 			initialItems.push({
 				type: "message",
 				role: "developer",
@@ -81,7 +81,7 @@ export async function buildRealtimeInitialItems(args: {
 	return initialItems.length > 0 ? initialItems : undefined;
 }
 
-function renderVoiceStartupContext(summary: string): string {
+export function renderVoiceStartupContext(summary: string): string {
 	return `${VOICE_STARTUP_CONTEXT_HEADER}\n<startup_context>\n${summary}\n</startup_context>`;
 }
 

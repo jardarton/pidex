@@ -49,6 +49,20 @@ Suggested entry:
 
 ## Active patches
 
+### Portable TypeBox schema declarations
+
+- **Status:** Active
+- **Purpose:** Keep declaration generation working with package TypeBox 1.3.29
+  and Pi's TypeBox 1.3.7; otherwise `bun install` fails in `prepare` with TS2883.
+- **Files:** `packages/pi-codex-conversion/src/context-management/history-notes.ts`
+  and `packages/pi-codex-conversion/src/tools/code-mode/notebook-tool.ts`.
+- **Behavior:** Preserve Pi's `StringEnum` implementation and literal-union
+  inference while naming its return type through the package's own `TUnsafe`.
+- **Reapply:** Import `StringEnum` as `piStringEnum` and local `TUnsafe`, then
+  define `const StringEnum: <T extends readonly string[]>(values: T) => TUnsafe<T[number]> = piStringEnum;`
+  before the affected schemas in each file. No runtime schema changes.
+- **Verify:** `bun install` (including the declaration build) and `bun run check`.
+
 ### Notify ntfy when LAN voice starts
 
 - **Status:** Active
