@@ -5,7 +5,7 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum as piStringEnum } from "@earendil-works/pi-ai";
-import { Type, type TUnsafe } from "typebox";
+import { Type, type Static, type TUnsafe } from "typebox";
 import type { ContextManagementMode } from "../adapter/activation/config.ts";
 import { historyNotesRenderers } from "./rendering.ts";
 import {
@@ -32,6 +32,8 @@ import {
 const BACKEND_TIMEOUT_MS = 35_000;
 const THREAD_HINT_MAX_BYTES = 4_000;
 const TOOL_OUTPUT_TOKEN_LIMIT = 10_000;
+
+const StringEnum: <T extends readonly string[]>(values: T) => TUnsafe<T[number]> = piStringEnum;
 
 const HISTORY_ENDPOINTS = {
 	list_windows: "alpha/history/v2/list_windows",
@@ -102,9 +104,6 @@ const NOTES_ACTION_FIELDS = {
 	append_to_file: ["path", "text"],
 	write_file: ["path", "text"],
 } satisfies Record<NotesAction, readonly string[]>;
-
-// Name the schema through our TypeBox version for portable declarations.
-const StringEnum: <T extends readonly string[]>(values: T) => TUnsafe<T[number]> = piStringEnum;
 
 const HISTORY_PARAMETERS = Type.Object(
 	{
@@ -182,6 +181,17 @@ export function createHistoryNotesTools(
 			description: HISTORY_DESCRIPTION,
 			parameters: HISTORY_PARAMETERS,
 			...historyNotesRenderers("history"),
+			prepareArguments(args) {
+				// Ignore extra search fields without advertising them or forwarding them to storage.
+				if (args && typeof args === "object" && !Array.isArray(args) &&
+					"action" in args && args.action === "search_contents") {
+					args = Object.fromEntries(Object.entries(args).filter(([field]) =>
+						field === "action" || HISTORY_ACTION_FIELDS.search_contents.includes(field),
+					));
+				}
+				// Pi validates the prepared value against parameters before execution.
+				return args as Static<typeof HISTORY_PARAMETERS>;
+			},
 			async execute(_id, params, signal, _update, ctx) {
 				const action = historyAction(params.action);
 				validateHistoryArguments(action, params);

@@ -69,7 +69,7 @@ export class CodexLanVoiceServerController {
 			);
 			void notifyLanVoiceStarted(this.server.urls).catch((error: unknown) => {
 				ctx.ui.notify(
-					`LAN voice started, but ntfy notification failed: ${error instanceof Error ? error.message : String(error)}`,
+					`LAN voice notification failed: ${error instanceof Error ? error.message : String(error)}`,
 					"warning",
 				);
 			});
