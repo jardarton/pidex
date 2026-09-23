@@ -51,18 +51,24 @@ export function projectCodexDeveloperHistory(
 		positions.set(key, indices);
 	});
 	const insertions = new Map<number, AgentMessage[]>();
+	// Pi adds the request's prompt and initial tools outside session history. A virtual
+	// entry with no matching persisted message must not precede that system prefix.
+	const insertAt = (index: number, pending: AgentMessage[]) => {
+		const position = index === 0 && messages[0]?.role === "system" ? 1 : index;
+		insertions.set(position, [...(insertions.get(position) ?? []), ...pending]);
+	};
 	let pending: AgentMessage[] = [];
 	let last = -1;
 	for (const message of reconstructed) {
 		const index = positions.get(messageKey(message))?.shift();
 		if (index !== undefined) {
-			if (pending.length) insertions.set(index, [...(insertions.get(index) ?? []), ...pending]);
+			if (pending.length) insertAt(index, pending);
 			pending = [];
 			last = index;
 		} else if (isVirtualMessage(message) && isCodexDeveloperMessageDetails(message.details)
 			&& virtualIds.has(message.details.id)) pending.push(message);
 	}
-	if (pending.length) insertions.set(last + 1, [...(insertions.get(last + 1) ?? []), ...pending]);
+	if (pending.length) insertAt(last + 1, pending);
 	return messages.flatMap((message, index) => [...(insertions.get(index) ?? []), message])
 		.concat(insertions.get(messages.length) ?? []);
 }

@@ -24,6 +24,17 @@ import {
 } from "./openai-codex-test-support.ts";
 import { context, doneMessage, model, sentFrames, streamOptions, textResponse, user } from "./websocket-test-support.ts";
 
+test("a first-turn developer reminder stays behind Pi's leading system message", () => {
+	const session = SessionManager.inMemory("/repo");
+	session.appendCustomEntry("codex-current-time-reminder", {
+		protocol: 1, id: "first-turn-reminder", time: Date.now(),
+	});
+	const system = { role: "system", content: "Prompt and tools", timestamp: 0 } as AgentMessage;
+	const projected = projectCodexDeveloperHistory(session.getBranch(), [system]);
+	assert.equal(projected[0], system);
+	assert.equal(projected[1]?.role, "custom");
+});
+
 test("request reasoning must match; persisted GPT-6 updates extend the input instead", async () => {
 	const userInput = { role: "user", content: [{ type: "input_text", text: "first" }] };
 	const assistantOutput = { type: "message", role: "assistant", content: [{ type: "output_text", text: "answer" }] };
