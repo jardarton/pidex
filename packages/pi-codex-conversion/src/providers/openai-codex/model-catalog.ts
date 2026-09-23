@@ -33,6 +33,27 @@ const SUPPLEMENTAL_MODELS: Model<"openai-codex-responses">[] = [
 		thinkingLevelMap: { off: null, minimal: "low", xhigh: "xhigh", max: "max" },
 		compat: { supportsOpenAIGrammarTools: true, supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true },
 	},
+	...(["Sol", "Luna"] as const).map((tier): Model<"openai-codex-responses"> => ({
+		id: `gpt-6-${tier.toLowerCase()}`,
+		name: `GPT-6 ${tier}`,
+		api: "openai-codex-responses",
+		provider: "openai-codex",
+		baseUrl: DEFAULT_CODEX_BASE_URL,
+		reasoning: true,
+		input: ["text", "image"],
+		// Standard API rates: https://developers.openai.com/api/docs/pricing
+		cost: tier === "Sol" ? {
+			input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5,
+			tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }],
+		} : {
+			input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125,
+			tiers: [{ inputTokensAbove: 272_000, input: 0.2, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }],
+		},
+		contextWindow: 272_000,
+		maxTokens: 128_000,
+		thinkingLevelMap: { off: null, minimal: "low", xhigh: "xhigh", max: "max" },
+		compat: { supportsOpenAIGrammarTools: true, supportsMidConvoSystemMessages: true, supportsAdditionalTools: true, supportsToolSearch: true },
+	})),
 	{
 		id: "gpt-daybreak-blue-latest",
 		name: "Daybreak Blue",
