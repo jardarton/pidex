@@ -24,15 +24,19 @@ import {
 } from "./openai-codex-test-support.ts";
 import { context, doneMessage, model, sentFrames, streamOptions, textResponse, user } from "./websocket-test-support.ts";
 
-test("a first-turn developer reminder stays behind Pi's leading system message", () => {
-	const session = SessionManager.inMemory("/repo");
-	session.appendCustomEntry("codex-current-time-reminder", {
-		protocol: 1, id: "first-turn-reminder", time: Date.now(),
-	});
-	const system = { role: "system", content: "Prompt and tools", timestamp: 0 } as AgentMessage;
-	const projected = projectCodexDeveloperHistory(session.getBranch(), [system]);
-	assert.equal(projected[0], system);
-	assert.equal(projected[1]?.role, "custom");
+test("first-turn virtual entries stay behind Pi's leading system message", () => {
+	for (const [type, data] of [
+		["codex-current-time-reminder", { protocol: 1, id: "first-turn-reminder", time: Date.now() }],
+		["codex-reasoning-update", { protocol: 1, id: "first-turn-reasoning", lane: "gpt-6-sol", initialEffort: "low", effort: "medium" }],
+	] as const) {
+		const session = SessionManager.inMemory("/repo");
+		session.appendCustomEntry(type, data);
+		const system = { role: "system", content: "Prompt and tools", timestamp: 0 } as AgentMessage;
+		const projected = projectCodexDeveloperHistory(session.getBranch(), [system]);
+		assert.equal(projected[0], system, `${type} must not hide Pi's prompt and tools`);
+		assert.equal(projected[1]?.role, "custom");
+		assert.equal((projected[1] as { customType: string }).customType, type);
+	}
 });
 
 test("request reasoning must match; persisted GPT-6 updates extend the input instead", async () => {
