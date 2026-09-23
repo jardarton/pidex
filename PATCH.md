@@ -89,9 +89,11 @@ Suggested entry:
 
 - **Status:** Active
 - **Purpose:** Pi's `context_with_system` request starts with a system message
-  containing the prompt and tool declarations, but a fresh session can contain
-  only a persisted current-time reminder (no user message yet). Rehydrating
-  that reminder at index zero causes Pi to report a missing system prefix.
+  containing the prompt and tool declarations. If the user changes GPT-6
+  thinking level before the first turn, the extension persists a reasoning
+  update before any model-visible session message. Rehydrating that virtual
+  entry at index zero causes Pi to report a missing system prefix. An optional
+  current-time reminder can also be the first virtual entry, but defaults off.
 - **Files:** `packages/pi-codex-conversion/src/adapter/developer-history.ts`
   and `packages/pi-codex-conversion/tests/cache-continuation.test.ts`.
 - **Behavior:** When inserting virtual entries into request messages, keep the
@@ -99,7 +101,8 @@ Suggested entry:
   and order for all other messages.
 - **Reapply:** Clamp virtual insertion position zero to one if the input starts
   with a system message, both for insertions before a matching persisted entry
-  and for trailing unmatched virtual entries. Add a first-turn regression test.
+  and for trailing unmatched virtual entries. Test both an early GPT-6 reasoning
+  update and an optional first-turn time reminder.
 - **Verify:** `bun test packages/pi-codex-conversion/tests/cache-continuation.test.ts`
   and `bun run check`.
 
