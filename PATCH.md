@@ -85,27 +85,6 @@ Suggested entry:
   `bun run check`. Start LAN voice with a test topic configured and confirm the
   notification opens the first advertised URL.
 
-### Keep first-turn system prompt ahead of virtual developer entries
-
-- **Status:** Active
-- **Purpose:** Pi's `context_with_system` request starts with a system message
-  containing the prompt and tool declarations. If the user changes GPT-6
-  thinking level before the first turn, the extension persists a reasoning
-  update before any model-visible session message. Rehydrating that virtual
-  entry at index zero causes Pi to report a missing system prefix. An optional
-  current-time reminder can also be the first virtual entry, but defaults off.
-- **Files:** `packages/pi-codex-conversion/src/adapter/developer-history.ts`
-  and `packages/pi-codex-conversion/tests/cache-continuation.test.ts`.
-- **Behavior:** When inserting virtual entries into request messages, keep the
-  leading system message at index zero. Preserve the usual insertion position
-  and order for all other messages.
-- **Reapply:** Clamp virtual insertion position zero to one if the input starts
-  with a system message, both for insertions before a matching persisted entry
-  and for trailing unmatched virtual entries. Test both an early GPT-6 reasoning
-  update and an optional first-turn time reminder.
-- **Verify:** `bun test packages/pi-codex-conversion/tests/cache-continuation.test.ts`
-  and `bun run check`.
-
 ### Exclude Windows native binaries
 
 - **Status:** Active
@@ -129,6 +108,12 @@ Suggested entry:
   all-platform `verify:codex-tool-binaries` publishing check is expected to fail
   until its platform list is made fork-aware.
 - **Added:** `94e8081` (`Remove the Windows binaries`).
+
+## Retired patches
+
+- **Keep first-turn system prompt ahead of virtual developer entries:** Upstream
+  3.0.39 now preserves the leading system message and tests both early reasoning
+  updates and time reminders. The fork uses those upstream files unchanged.
 
 ## Repository-only adaptations
 
