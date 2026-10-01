@@ -43,7 +43,7 @@ export const NOTEBOOK_PARAMETERS = Type.Union([
 	}, { additionalProperties: false }),
 ]);
 
-const NOTEBOOK_DESCRIPTION = "Control persistent notebook state: status inspects memory/bindings by query glob; checkpoint; pin/unpin/release names; prune unpinned matches; list/save/load profiles; restart; diagnostics; reset";
+const NOTEBOOK_DESCRIPTION = "Control persistent notebook state; status queries memory/bindings by glob; prune removes unpinned matches; list/save/load manage profiles";
 
 type NotebookToolParameters = {
 	action: string;
@@ -57,6 +57,7 @@ export function registerNotebookTool(pi: ExtensionAPI, runtime: SharedCodeModeRu
 	const constrainedSampling = getExperimentalToolSampling("notebook");
 	pi.registerTool({
 		name: "notebook",
+		exposure: "model-only",
 		label: "Notebook",
 		description: NOTEBOOK_DESCRIPTION,
 		promptSnippet: "Inspect, recover, or control notebook state",

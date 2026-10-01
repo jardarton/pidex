@@ -3,20 +3,21 @@
 | | |
 | --- | --- |
 | Repository | https://github.com/IgorWarzocha/howaboua-pi-stuff |
-| Directory | `packages/pi-codex-conversion` |
-| Upstream revision | `61b493cf76cdd8e4789dd08d3a0ecee6c1c7c6eb` (2026-09-24) |
-| Package version | `@howaboua/pi-codex-conversion@3.0.39` |
+| Directories | `packages/pi-codex-conversion`, `packages/pi-codex-imagegen`, `packages/pi-codex-web-run` |
+| Upstream revision | `493f60de8311e2201e3b4a2b66b129f9f2a40513` (2026-09-30) |
+| Conversion version | `@howaboua/pi-codex-conversion@3.0.42` |
+| Imagegen version | `@howaboua/pi-codex-imagegen@0.0.8` |
+| Web-run version | `@howaboua/pi-codex-web-run@0.0.5` |
 
 This repository is a snapshot fork. It does not contain the upstream commit history.
 The table records the revision used for the most recent package refresh.
 
 ## What was copied unchanged
 
-- `packages/pi-codex-conversion/` — all tracked files except the customizations below
+- All three package directories — all tracked files except the customizations below
 - `tsconfig.base.json`
 - `LICENSE`
 - `.gitignore`
-- `bun.lock`
 - `scripts/workspaces.mjs`, `scripts/active-packages.mjs`, `scripts/changed-workspaces.mjs`,
   `scripts/check-changed.mjs`, `scripts/build-extension-changelog.mjs`,
   `scripts/verify-pi-extension-artifact.mjs`
@@ -26,7 +27,11 @@ The table records the revision used for the most recent package refresh.
 - The root `package.json` is new. It keeps the bun workspace setup and the
   `typecheck` / `test` / `check` / `pack:dry` scripts, but drops the changesets release
   pipeline and the dependencies that only the other upstream packages needed.
-- `knip.jsonc` only lists this package.
+- `bun.lock` is regenerated for this snapshot's workspace and dependencies.
+- `knip.jsonc` only lists these three packages.
+- Imagegen and web-run explicitly declare `@earendil-works/pi-ai` as a development
+  dependency for their type-only imports; upstream supplies it at the monorepo root.
+- The root declares `@typescript/native-preview` for their upstream `tsgo` scripts.
 - The upstream `.changeset/`, `.githooks/`, `.github/`, `.pi/`, and `docs/` directories were
   not copied.
 - This `README.md` and `UPSTREAM.md` are new. The upstream root `README.md`, `AGENTS.md`,
@@ -76,23 +81,25 @@ git remote add upstream https://github.com/IgorWarzocha/howaboua-pi-stuff.git   
 git fetch upstream
 
 # see what changed in the package since the last refresh, ignoring binary churn
-git diff 61b493cf76cdd8e4789dd08d3a0ecee6c1c7c6eb..upstream/main \
-  -- packages/pi-codex-conversion ':(exclude)packages/pi-codex-conversion/**/bin/**'
+git diff 493f60de8311e2201e3b4a2b66b129f9f2a40513..upstream/main \
+  -- packages/pi-codex-conversion packages/pi-codex-imagegen packages/pi-codex-web-run \
+  ':(exclude)packages/pi-codex-conversion/**/bin/**'
 ```
 
 Upstream rebuilds and commits all 36 binaries on most releases, so excluding them removes
 the largest source of diff noise. `git apply` also fails on a hunk that modifies a Windows
 binary this fork deleted, so the exclusion is required, not only convenient.
 
-Replacing the directory is more reliable than applying a patch, because it cannot conflict:
+Replacing the directories avoids patch conflicts, but overwrites fork customizations.
+Save and reapply the patches described above and in `PATCH.md` when using this approach:
 
 ```bash
-git rm -r --cached packages/pi-codex-conversion
-rm -rf packages/pi-codex-conversion
-git archive upstream/main packages/pi-codex-conversion | tar -x
+git rm -r --cached packages/pi-codex-conversion packages/pi-codex-imagegen packages/pi-codex-web-run
+rm -rf packages/pi-codex-conversion packages/pi-codex-imagegen packages/pi-codex-web-run
+git archive upstream/main packages/pi-codex-conversion packages/pi-codex-imagegen packages/pi-codex-web-run | tar -x
 find packages/pi-codex-conversion -path '*/bin/win32-*' -type f -delete
 find packages/pi-codex-conversion -type d -name 'win32-*' -empty -delete
-git add -A packages/pi-codex-conversion
+git add -A packages/pi-codex-conversion packages/pi-codex-imagegen packages/pi-codex-web-run
 git status
 ```
 

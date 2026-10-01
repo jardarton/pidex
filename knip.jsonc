@@ -20,6 +20,14 @@
 				"tests/**/*.ts"
 			],
 			"ignoreDependencies": ["proxy-from-env"]
+		},
+		"packages/pi-codex-imagegen": {
+			"entry": ["tests/**/*.test.ts"],
+			"project": ["*.ts", "src/**/*.ts", "tests/**/*.ts"]
+		},
+		"packages/pi-codex-web-run": {
+			"entry": ["tests/**/*.test.ts"],
+			"project": ["*.ts", "src/**/*.ts", "tests/**/*.ts"]
 		}
 	}
 }

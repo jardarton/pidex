@@ -1,0 +1,53 @@
+# @howaboua/pi-codex-imagegen
+
+## 0.0.8
+
+- Added `transparent_background` for generated and edited images. Omitted or false requests an opaque background.
+
+  Image requests now re-evaluate proxy and `no_proxy` routing after redirects.
+
+## 0.0.7
+
+- Adapt Codex, Imagegen, review, and GipPity to Pi 0.87.
+
+  Codex Conversion, Imagegen, and Subagent Review require Pi 0.87.0 or newer.
+
+  - Fixed Codex prompt and tool updates rewriting the cached conversation prefix.
+  - Context reminders no longer start an extra checkpoint turn if the current run already saved a note in the current window.
+  - Fixed Imagegen recent-image selection ignoring context removals and replacements.
+  - Fixed review summaries and preface tracking ignoring context removals and replacements.
+  - Kept GipPity browser turn notifications from including full context previews and losing their fields to truncation.
+
+## 0.0.6
+
+- Remove retired Spark from Codex tool authentication preferences. Codex Conversion now explains biological-policy errors when the server omits an explanation.
+
+## 0.0.5
+
+- Guide image generation prompts toward target aspect ratio and quality, the controls honored by the Codex backend.
+
+## 0.0.4
+
+- Image generation and editing now request gpt-image-2.5. Proxy model mappings must use gpt-image-2.5 as their canonical key.
+
+## 0.0.3
+
+- Fixed Codex web search and image generation to use local Codex authentication on unrelated chat providers while preserving explicit Codex routes and optional Pi Codex integration. Removed Pi Codex package dependencies.
+
+## 0.0.2
+
+- Fix worker settlement, custom model preservation, and prompt-only image generation.
+
+  - Settle Shepherdr workers after Pi expands skill or prompt-template invocations.
+  - Preserve custom Codex models and `models.json` overrides, including after refresh.
+  - Keep optional tool arguments optional in Codex Responses requests while preserving explicit strict sampling.
+  - Treat null image selectors as absent, so prompt-only requests generate rather than edit.
+  - Honor the details toggle in Notebook Mode to hide duplicate output previews.
+  - Show submitted messages without waiting for cached WebSocket warmup, while keeping generation serialized behind it.
+
+## 0.0.1
+
+- Initial release of Imagegen for Codex image generation and editing in normal Pi, Code Mode, and Notebook Mode.
+
+  - Generate new images or edit recent and workspace-local PNG, JPEG, GIF, or WebP files.
+  - Save outputs beneath the workspace and use stock, renamed, or proxied Codex providers.
